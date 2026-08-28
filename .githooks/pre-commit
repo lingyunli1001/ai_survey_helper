@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Blocks commits containing anything that looks like a credential.
+# Enable with:  git config core.hooksPath .githooks
+set -uo pipefail
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -z "$staged" ] && exit 0
+
+fail=0
+note() { echo "  $*" >&2; }
+
+# 1. never allow an env file itself through, even with -f
+while IFS= read -r f; do
+  case "$(basename "$f")" in
+    .env|.env.*|*.pem|*.key|id_rsa|id_ed25519)
+      [ "$(basename "$f")" = ".env.example" ] && continue
+      note "blocked file: $f"
+      fail=1
+      ;;
+  esac
+done <<< "$staged"
+
+# 2. scan staged CONTENT for key-shaped strings
+patterns=(
+  'AIza[0-9A-Za-z_-]{35}'                  # Google API key
+  'AQ\.[A-Za-z0-9_-]{30,}'                 # Google AI Studio key
+  'sk-ant-[A-Za-z0-9_-]{20,}'              # Anthropic
+  'sk-[A-Za-z0-9]{32,}'                    # OpenAI style
+  'gsk_[A-Za-z0-9]{40,}'                   # Groq
+  'ghp_[A-Za-z0-9]{36}'                    # GitHub PAT
+  '-----BEGIN [A-Z ]*PRIVATE KEY-----'     # private keys
+)
+
+for f in $staged; do
+  [ -f "$f" ] || continue
+  case "$f" in .githooks/pre-commit) continue ;; esac   # this file lists the patterns
+  for p in "${patterns[@]}"; do
+    if git show ":$f" 2>/dev/null | grep -nEq -- "$p"; then
+      note "secret-shaped string in: $f"
+      git show ":$f" | grep -nE -- "$p" | head -2 | sed 's/^/    /' >&2
+      fail=1
+    fi
+  done
+done
+
+if [ "$fail" -ne 0 ]; then
+  echo "" >&2
+  echo "pre-commit: refusing to commit — see above." >&2
+  echo "If it is a false positive: git commit --no-verify" >&2
+  exit 1
+fi
+exit 0

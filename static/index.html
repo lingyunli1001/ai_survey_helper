@@ -1,0 +1,1437 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Synthetic Panel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..500;1,6..72,300..400&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#FAF9F7; --surface:#FFFFFF; --text:#1C1917; --muted:#78716C;
+    --faint:#A8A29E; --rule:#E0DDD8; --rule-soft:#EDEAE5;
+    --accent:#1C1917; --focus:#57534E; --warn:#9A3412; --live:#3F6212;
+  }
+  :root:not([data-theme="light"]) {
+    @media (prefers-color-scheme: dark) {
+      --bg:#0F0E0D; --surface:#171514; --text:#F5F3F0; --muted:#A8A29E;
+      --faint:#78716C; --rule:#302B28; --rule-soft:#221F1C;
+      --accent:#F5F3F0; --focus:#D6D3D0; --warn:#FDBA74; --live:#A3E635;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#0F0E0D; --surface:#171514; --text:#F5F3F0; --muted:#A8A29E;
+    --faint:#78716C; --rule:#302B28; --rule-soft:#221F1C;
+    --accent:#F5F3F0; --focus:#D6D3D0; --warn:#FDBA74; --live:#A3E635;
+  }
+
+  * { box-sizing:border-box; }
+  html, body { height:100%; }
+  body {
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  }
+  .shell { min-height:100%; display:flex; flex-direction:column; }
+
+  header {
+    padding:22px 30px; display:flex; align-items:center;
+    justify-content:space-between; gap:16px; flex:0 0 auto;
+  }
+  .wordmark { display:flex; align-items:baseline; gap:9px; font-size:14px; letter-spacing:-0.01em; }
+  .wordmark .mark { width:7px; height:7px; border-radius:50%; background:var(--accent); transform:translateY(-1px); }
+  .wordmark b { font-weight:500; }
+  .wordmark span { color:var(--faint); font-weight:400; }
+  .masthead-note { font-size:12.5px; color:var(--faint); }
+  .restart { font:inherit; font-size:12.5px; color:var(--faint); background:none; border:0; cursor:pointer; display:none; }
+  .restart:hover { color:var(--text); }
+  body.talking .masthead-note { display:none; }
+  body.talking .restart { display:block; }
+
+  main { flex:1 1 auto; display:flex; justify-content:center; padding:12px 30px 40px; }
+
+  /* ---------- landing ---------- */
+  .stage { width:100%; max-width:680px; align-self:center; }
+  body.talking .stage { display:none; }
+  .prompt {
+    font-family:Newsreader, ui-serif, Georgia, serif; font-weight:300;
+    font-size:clamp(30px,5.4vw,46px); line-height:1.18; letter-spacing:-0.018em;
+    margin:0 0 6px; min-height:1.18em;
+  }
+  .caret { display:inline-block; width:1px; height:.92em; background:var(--text);
+           margin-left:3px; transform:translateY(.1em); animation:blink 1.15s step-end infinite; }
+  .caret.done { display:none; }
+  @keyframes blink { 0%,55%{opacity:1;} 56%,100%{opacity:0;} }
+  .field { position:relative; opacity:0; transform:translateY(6px); transition:opacity .5s, transform .5s; }
+  .field.ready { opacity:1; transform:none; }
+  .field input {
+    width:100%; background:transparent; border:0; border-bottom:1px solid var(--rule);
+    padding:6px 44px 14px 0; font-family:Newsreader, ui-serif, Georgia, serif;
+    font-weight:300; font-size:clamp(30px,5.4vw,46px); line-height:1.18;
+    letter-spacing:-0.018em; color:var(--text); outline:none; transition:border-color .22s;
+  }
+  .field input::placeholder { color:var(--faint); opacity:1; }
+  .field input:focus { border-bottom-color:var(--focus); }
+  .go { position:absolute; right:0; bottom:14px; width:34px; height:34px; display:grid;
+        place-items:center; border:0; border-radius:50%; background:var(--accent);
+        color:var(--bg); cursor:pointer; opacity:0; transform:scale(.82);
+        pointer-events:none; transition:opacity .2s, transform .2s; }
+  .go.live { opacity:1; transform:none; pointer-events:auto; }
+  .go:hover { opacity:.84; }
+  .go svg { width:15px; height:15px; display:block; }
+  .suggestions { margin-top:26px; display:flex; flex-wrap:wrap; gap:8px; opacity:0; transition:opacity .55s .12s; }
+  .suggestions.ready { opacity:1; }
+  .suggestions .label { font-size:12.5px; color:var(--faint); align-self:center; }
+  .chip { font:inherit; font-size:13px; color:var(--muted); background:var(--surface);
+          border:1px solid var(--rule-soft); border-radius:999px; padding:6px 13px;
+          cursor:pointer; transition:border-color .18s, color .18s, transform .18s; }
+  .chip:hover { color:var(--text); border-color:var(--rule); transform:translateY(-1px); }
+
+  /* ---------- workspace ---------- */
+  .workspace { display:none; width:100%; max-width:1420px; gap:46px; }
+  body.talking .workspace { display:grid; grid-template-columns:minmax(290px,370px) minmax(0,1fr); }
+
+  .column { min-width:0; display:flex; flex-direction:column; }
+  .thread { flex:1 1 auto; }
+  .turn { animation:rise .38s ease both; }
+  @keyframes rise { from{opacity:0; transform:translateY(7px);} to{opacity:1; transform:none;} }
+  .turn.user { margin:26px 0 4px; font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--faint); }
+  .turn.user .body { margin-top:7px; text-transform:none; letter-spacing:normal;
+                     font-size:15px; line-height:1.5; color:var(--muted);
+                     padding-left:14px; border-left:2px solid var(--rule); }
+  .turn.model { font-family:Newsreader, ui-serif, Georgia, serif; font-weight:300;
+                font-size:20px; line-height:1.52; margin:18px 0 26px;
+                color:var(--text); white-space:pre-wrap; }
+  .turn.model.error { font-family:Inter,sans-serif; font-size:14.5px; color:var(--warn); }
+  .stream-caret { display:inline-block; width:1px; height:.86em; background:var(--text);
+                  margin-left:2px; transform:translateY(.08em); animation:blink 1.15s step-end infinite; }
+  .thinking { display:flex; gap:5px; align-items:center; margin:20px 0 26px; height:20px; }
+  .thinking.under { margin:-14px 0 26px; }
+  .thinking.under .note { margin-left:6px; font-size:11.5px; color:var(--faint); letter-spacing:.02em; }
+  .retry { margin:-10px 0 26px; font-size:12.5px; color:var(--muted); }
+
+  .options { margin:-8px 0 30px; display:flex; flex-direction:column;
+             align-items:flex-start; gap:7px; }
+  .opt {
+    font:inherit; font-size:14px; line-height:1.4; text-align:left;
+    color:var(--text); background:var(--surface);
+    border:1px solid var(--rule); border-radius:10px;
+    padding:9px 14px; cursor:pointer; max-width:100%;
+    animation:rise .34s ease both;
+    transition:border-color .16s, background .16s, transform .16s;
+  }
+  .opt:hover { border-color:var(--focus); transform:translateX(2px); }
+  .opt.free { color:var(--muted); background:transparent; border-style:dashed; }
+  .opt.free:hover { color:var(--text); }
+  .retry b { font-weight:500; font-variant-numeric:tabular-nums; }
+  .thinking i { width:4px; height:4px; border-radius:50%; background:var(--faint); animation:pulse 1.25s ease-in-out infinite; }
+  .thinking i:nth-child(2){ animation-delay:.16s; }
+  .thinking i:nth-child(3){ animation-delay:.32s; }
+  @keyframes pulse { 0%,100%{opacity:.25; transform:translateY(0);} 45%{opacity:.9; transform:translateY(-2px);} }
+
+  .composer { position:sticky; bottom:0; padding:14px 0 18px;
+              background:linear-gradient(to bottom, transparent, var(--bg) 24%); }
+  .composer form { display:flex; align-items:flex-end; gap:10px; border:1px solid var(--rule);
+                   border-radius:14px; background:var(--surface); padding:11px 12px 11px 15px;
+                   transition:border-color .2s; }
+  .composer form:focus-within { border-color:var(--focus); }
+  .composer textarea { flex:1; border:0; outline:none; resize:none; background:transparent;
+                       font:inherit; font-size:15px; line-height:1.5; color:var(--text);
+                       max-height:160px; min-height:23px; padding:0; }
+  .composer textarea::placeholder { color:var(--faint); }
+  .send { flex:0 0 auto; width:30px; height:30px; border:0; border-radius:50%;
+          background:var(--accent); color:var(--bg); display:grid; place-items:center;
+          cursor:pointer; opacity:.25; pointer-events:none; transition:opacity .18s; }
+  .send.live { opacity:1; pointer-events:auto; }
+  .send svg { width:14px; height:14px; display:block; }
+
+  /* ---------- panel ---------- */
+  .panel { position:sticky; top:16px; align-self:start; max-height:calc(100vh - 90px);
+           overflow-y:auto; padding-bottom:18px; }
+  .panel::-webkit-scrollbar { width:8px; }
+  .panel::-webkit-scrollbar-thumb { background:var(--rule-soft); border-radius:4px; }
+
+  .panel-head { display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+  .panel-title { font-size:11.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--faint); }
+  .panel-count { font-family:Newsreader, serif; font-size:26px; font-weight:300; line-height:1; }
+  .panel-count small { font-size:12px; color:var(--faint); font-family:Inter,sans-serif; margin-left:5px; }
+  .panel-pop { margin-top:7px; font-size:13.5px; color:var(--muted); line-height:1.45; min-height:19px; }
+
+  .steps { margin-top:18px; display:flex; gap:0; }
+  .step { flex:1; padding-top:9px; border-top:2px solid var(--rule-soft);
+          margin-right:6px; transition:border-color .45s ease; }
+  .step:last-child { margin-right:0; }
+  .step .no { font-size:10px; letter-spacing:.08em; color:var(--faint); transition:color .3s; }
+  .step .nm { display:block; margin-top:2px; font-size:11.5px; color:var(--faint);
+              letter-spacing:.01em; transition:color .3s; }
+  .step.done { border-top-color:var(--rule); }
+  .step.done .nm, .step.done .no { color:var(--muted); }
+  .step.now { border-top-color:var(--accent); }
+  .step.now .nm { color:var(--text); font-weight:500; }
+  .step.now .no { color:var(--text); }
+  .step.clickable { cursor:pointer; }
+  .step.clickable:hover .nm { color:var(--text); }
+  .step.viewing { border-top-style:dashed; border-top-color:var(--focus); }
+  .step.viewing .nm { color:var(--text); }
+
+  .peek {
+    margin-top:14px; display:none; align-items:center; justify-content:space-between;
+    gap:12px; font-size:12px; color:var(--muted);
+    background:var(--rule-soft); border-radius:8px; padding:8px 12px;
+  }
+  .peek.on { display:flex; }
+  .peek button { font:inherit; font-size:12px; color:var(--text); background:none;
+                 border:0; cursor:pointer; text-decoration:underline; padding:0; }
+
+  .view { display:none; }
+  .view.on { display:block; }
+
+  /* stage 2 — construct */
+  .kv { margin-top:18px; }
+  .kv .k { font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--faint); }
+  .kv .v { margin-top:6px; font-family:Newsreader, serif; font-size:19px;
+           font-weight:300; line-height:1.45; color:var(--text); }
+  .kv .v.small { font-family:Inter,sans-serif; font-size:14px; line-height:1.55; color:var(--muted); }
+  .excl { margin-top:9px; display:flex; flex-wrap:wrap; gap:7px; }
+  .excl span { font-size:12px; color:var(--faint); border:1px dashed var(--rule);
+               border-radius:999px; padding:4px 11px; text-decoration:line-through; }
+
+  /* stage 2 — construct scope diagram */
+  .scope { margin-top:20px; position:relative; padding:34px 0 10px; }
+  .scope-ring {
+    position:relative; border:1.5px solid var(--accent); border-radius:50%;
+    aspect-ratio:1/.62; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; text-align:center;
+    padding:22px 34px; background:color-mix(in srgb, var(--accent) 5%, var(--surface));
+    animation:bloom .55s cubic-bezier(.2,.7,.3,1) both;
+  }
+  @keyframes bloom { from{opacity:0; transform:scale(.93);} to{opacity:1; transform:none;} }
+  .scope-ring .lbl {
+    font-size:9.5px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--muted); margin-bottom:8px;
+  }
+  .scope-ring .nm3 {
+    font-family:Newsreader, serif; font-weight:400; font-size:23px;
+    line-height:1.24; letter-spacing:-0.01em;
+  }
+  .scope-ring .df {
+    margin-top:9px; font-size:12.5px; line-height:1.5; color:var(--muted); max-width:34ch;
+  }
+  .orbit { margin-top:16px; display:flex; flex-wrap:wrap; gap:8px; justify-content:center; }
+  .orbit .out {
+    font-size:12px; color:var(--faint); border:1px dashed var(--rule);
+    border-radius:999px; padding:6px 13px; background:var(--bg);
+    animation:driftout .5s ease both;
+  }
+  @keyframes driftout { from{opacity:0; transform:scale(.9);} to{opacity:.95; transform:none;} }
+  .orbit-lab {
+    text-align:center; margin-top:20px; font-size:9.5px; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--faint);
+  }
+  .decides {
+    margin-top:26px; border-top:1px solid var(--rule-soft); padding-top:16px;
+  }
+  .decides .k2 { font-size:9.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--faint); }
+  .decides .v2 { margin-top:8px; font-family:Newsreader, serif; font-weight:300;
+                 font-size:18px; line-height:1.45; }
+  .scope-empty { margin-top:24px; font-size:13px; color:var(--faint); font-style:italic;
+                 line-height:1.6; }
+
+  /* stage 5 — run */
+  .runbar { margin-top:18px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .runbtn {
+    font:inherit; font-size:13.5px; color:var(--bg); background:var(--accent);
+    border:0; border-radius:10px; padding:10px 18px; cursor:pointer;
+    transition:opacity .18s;
+  }
+  .runbtn:hover { opacity:.85; }
+  .runbtn[disabled] { opacity:.35; cursor:default; }
+  .nsel { font:inherit; font-size:13px; color:var(--text); background:var(--surface);
+          border:1px solid var(--rule); border-radius:9px; padding:9px 10px; }
+  .runnote { font-size:11.5px; color:var(--faint); }
+
+  .itempick { margin-top:14px; display:flex; flex-direction:column; gap:6px; }
+  .itempick button {
+    font:inherit; font-size:13.5px; text-align:left; line-height:1.4;
+    color:var(--muted); background:var(--surface); border:1px solid var(--rule-soft);
+    border-radius:9px; padding:9px 13px; cursor:pointer; transition:all .16s;
+  }
+  .itempick button:hover { color:var(--text); border-color:var(--rule); }
+  .itempick button.sel { color:var(--text); border-color:var(--focus);
+                         background:color-mix(in srgb, var(--accent) 5%, var(--surface)); }
+
+  .progress { margin-top:16px; height:2px; background:var(--rule-soft); border-radius:2px; }
+  .progress i { display:block; height:100%; width:0; background:var(--accent);
+                border-radius:2px; transition:width .3s ease; }
+  .progress-lab { margin-top:8px; font-size:11.5px; color:var(--faint);
+                  font-variant-numeric:tabular-nums; }
+
+  .rgrid { margin-top:16px; display:grid;
+           grid-template-columns:repeat(auto-fill,minmax(42px,1fr)); gap:5px; }
+  .rcell {
+    aspect-ratio:1/1; border:1px solid var(--rule-soft); border-radius:6px;
+    display:grid; place-items:center; font-family:Newsreader, serif; font-size:16px;
+    background:var(--surface); color:var(--faint);
+  }
+  .rcell.filled { color:var(--text); animation:pop .3s ease both; }
+  .rcell.failed { color:var(--warn); font-size:11px; }
+
+  .hist { margin-top:24px; display:flex; align-items:flex-end; gap:8px; height:132px; }
+  .hbar { flex:1; display:flex; flex-direction:column; justify-content:flex-end;
+          align-items:center; gap:6px; height:100%; }
+  .hbar .col { width:100%; background:var(--accent); border-radius:5px 5px 0 0;
+               height:0; transition:height .5s cubic-bezier(.2,.7,.3,1); min-height:2px; }
+  .hbar .ct { font-size:11px; color:var(--muted); font-variant-numeric:tabular-nums; }
+  .hbar .lb { font-size:9.5px; color:var(--faint); text-align:center; line-height:1.3;
+              min-height:2.6em; }
+
+  .spread { margin-top:18px; display:flex; gap:0; border:1px solid var(--rule-soft);
+            border-radius:9px; overflow:hidden; }
+  .spread .stat b { font-variant-numeric:tabular-nums; }
+  .finding { margin-top:18px; font-size:12.5px; line-height:1.6; color:var(--muted);
+             border-left:2px solid var(--accent); padding-left:13px; }
+
+  /* stage 3 — questionnaire preview */
+  .form-prev { margin-top:16px; border:1px solid var(--rule-soft); border-radius:10px;
+               background:var(--surface); padding:20px 22px; }
+  .q { padding:16px 0; border-top:1px solid var(--rule-soft); }
+  .q:first-child { border-top:0; padding-top:0; }
+  .q .qt { font-family:Newsreader, serif; font-size:17px; font-weight:300;
+           line-height:1.45; margin-bottom:11px; }
+  .q .qn { font-size:10.5px; color:var(--faint); letter-spacing:.08em; margin-bottom:5px; }
+  .scale { display:flex; gap:6px; flex-wrap:wrap; }
+  .scale span { font-size:11px; color:var(--muted); border:1px solid var(--rule);
+                border-radius:6px; padding:5px 9px; }
+
+  /* stage 4 — benchmark */
+  .src { margin-top:16px; border:1px solid var(--rule-soft); border-left:3px solid var(--accent);
+         border-radius:8px; background:var(--surface); padding:15px 17px; }
+  .src .nm2 { font-size:13px; font-weight:500; }
+  .src .it { margin-top:9px; font-family:Newsreader, serif; font-size:16px;
+             font-weight:300; line-height:1.45; }
+  .src .nt { margin-top:10px; font-size:12px; color:var(--muted); line-height:1.5; }
+
+  /* inline free-text answer */
+  .otherbox { display:flex; gap:8px; align-items:center; width:100%; max-width:440px;
+              animation:rise .3s ease both; }
+  .otherbox input {
+    flex:1; font:inherit; font-size:14px; color:var(--text); background:var(--surface);
+    border:1px solid var(--focus); border-radius:10px; padding:9px 13px; outline:none;
+  }
+  .otherbox button { font:inherit; font-size:13px; color:var(--bg); background:var(--accent);
+                     border:0; border-radius:9px; padding:9px 14px; cursor:pointer; }
+
+  .readiness { margin-top:14px; height:2px; background:var(--rule-soft); border-radius:2px; overflow:hidden; }
+  .readiness i { display:block; height:100%; width:0; background:var(--accent);
+                 border-radius:2px; transition:width .7s cubic-bezier(.2,.7,.3,1); }
+
+  .grid { margin-top:16px; display:grid; grid-template-columns:repeat(auto-fill,minmax(72px,1fr)); gap:7px; }
+  .cell {
+    aspect-ratio:1/1.06; border:1px solid var(--rule-soft); border-radius:7px;
+    background:var(--surface); display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:3px; overflow:hidden;
+    animation:pop .32s ease both; transition:background .5s ease;
+  }
+  @keyframes pop { from{opacity:0; transform:scale(.9);} to{opacity:1; transform:none;} }
+  .cell .age { font-family:Newsreader, serif; font-size:22px; font-weight:400;
+               line-height:1; letter-spacing:-0.01em; }
+  .cell .meta { font-size:9.5px; letter-spacing:.05em; color:var(--muted); text-transform:uppercase; }
+  .cell.flash { animation:pop .32s ease both, flash 1s ease .1s; }
+  @keyframes flash { 0%{ box-shadow:inset 0 0 0 2px var(--focus); } 100%{ box-shadow:inset 0 0 0 2px transparent; } }
+  .cell.ghost { background:transparent; border-style:dashed; opacity:.34; }
+
+  /* summary strip */
+  .stats { margin-top:16px; display:flex; gap:0; border:1px solid var(--rule-soft);
+           border-radius:9px; overflow:hidden; }
+  .stat { flex:1; padding:11px 13px; border-right:1px solid var(--rule-soft); }
+  .stat:last-child { border-right:0; }
+  .stat b { display:block; font-family:Newsreader, serif; font-weight:400;
+            font-size:21px; line-height:1.1; }
+  .stat span { display:block; margin-top:3px; font-size:10px; letter-spacing:.08em;
+               text-transform:uppercase; color:var(--faint); }
+
+  /* colour-by control */
+  .tintbar { margin-top:20px; display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
+  .tintbar .lab { font-size:10.5px; letter-spacing:.09em; text-transform:uppercase; color:var(--faint); }
+  .tint { font:inherit; font-size:12px; text-transform:capitalize; color:var(--muted);
+          background:transparent; border:1px solid var(--rule-soft); border-radius:999px;
+          padding:4px 11px; cursor:pointer; transition:all .18s; }
+  .tint:hover { color:var(--text); border-color:var(--rule); }
+  .tint.on { color:var(--bg); background:var(--accent); border-color:var(--accent); }
+
+  .legend { margin-top:11px; display:flex; flex-wrap:wrap; gap:12px; font-size:11px; color:var(--muted); }
+  .legend span { display:flex; align-items:center; gap:5px; }
+  .legend i { width:9px; height:9px; border-radius:2px; border:1px solid var(--rule-soft); }
+
+  .cell { cursor:default; }
+  .cell:hover { border-color:var(--focus); }
+  .tip {
+    position:fixed; z-index:50; pointer-events:none; opacity:0;
+    transform:translateY(3px); transition:opacity .13s ease, transform .13s ease;
+    background:var(--text); color:var(--bg); border-radius:10px;
+    padding:12px 14px 11px; width:252px; line-height:1.45;
+    box-shadow:0 10px 30px rgba(0,0,0,.22);
+  }
+  .tip.on { opacity:1; transform:none; }
+
+  .crash {
+    display:none; position:fixed; left:0; right:0; bottom:0; z-index:99;
+    background:var(--warn); color:var(--bg); padding:11px 18px;
+    font-size:12.5px; font-family:ui-monospace, monospace; line-height:1.5;
+  }
+  .crash.on { display:block; }
+  .tip b {
+    display:block; font-weight:400; font-size:10px; letter-spacing:.12em;
+    text-transform:uppercase; opacity:.55; margin-bottom:9px;
+  }
+  .tip .row {
+    display:grid; grid-template-columns:1fr auto; gap:16px; align-items:baseline;
+    padding:5px 0; border-top:1px solid color-mix(in srgb, currentColor 15%, transparent);
+  }
+  .tip .row:first-of-type { border-top:0; }
+  .tip .row .k { font-size:11px; opacity:.6; }
+  .tip .row .v { font-size:12.5px; text-align:right; }
+  .tip .row.lit .k, .tip .row.lit .v { opacity:1; font-weight:500; }
+
+  .section { margin-top:26px; }
+  .section h3 { margin:0 0 10px; font-size:11.5px; letter-spacing:.1em;
+                text-transform:uppercase; color:var(--faint); font-weight:400; }
+  .dims { display:flex; flex-direction:column; gap:11px; }
+  .dim-name { font-size:12px; color:var(--muted); margin-bottom:5px; text-transform:capitalize; }
+  .bar { display:flex; height:5px; border-radius:3px; overflow:hidden; background:var(--rule-soft); }
+  .bar i { display:block; height:100%; border-right:1px solid var(--bg); transition:width .55s cubic-bezier(.2,.7,.3,1); }
+  .bar i:last-child { border-right:0; }
+  .dim-legend { margin-top:5px; font-size:10.5px; color:var(--faint); display:flex; flex-wrap:wrap; gap:8px; }
+
+  .items { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:9px; }
+  .items li { font-family:Newsreader, serif; font-size:14.5px; line-height:1.42;
+              color:var(--text); padding-left:20px; position:relative; animation:rise .4s ease both; }
+  .items li b { position:absolute; left:0; top:1px; font-family:Inter,sans-serif;
+                font-size:10px; font-weight:400; color:var(--faint); }
+  .items li em { display:block; font-family:Inter,sans-serif; font-style:normal;
+                 font-size:10.5px; letter-spacing:.05em; text-transform:uppercase;
+                 color:var(--faint); margin-top:3px; }
+
+  .bench { font-size:12.5px; color:var(--muted); line-height:1.5; }
+  .bench.none { color:var(--faint); font-style:italic; }
+  .empty { font-size:12.5px; color:var(--faint); font-style:italic; }
+
+  footer { flex:0 0 auto; padding:20px 30px 26px; border-top:1px solid var(--rule-soft); }
+  body.talking footer { display:none; }
+  .footer-inner { max-width:680px; margin:0 auto; display:flex; gap:18px;
+                  justify-content:space-between; align-items:baseline;
+                  font-size:12.5px; color:var(--faint); line-height:1.5; }
+  .footer-inner p { margin:0; max-width:46ch; }
+
+  @media (max-width:980px) {
+    body.talking .workspace { grid-template-columns:minmax(0,1fr); gap:34px; }
+    .panel { position:static; max-height:none; border-top:1px solid var(--rule-soft); padding-top:24px; }
+  }
+  @media (max-width:620px) {
+    header, main, footer { padding-left:20px; padding-right:20px; }
+    .masthead-note { display:none; }
+    .footer-inner { flex-direction:column; gap:8px; }
+    .turn.model { font-size:18px; }
+  }
+  @media (prefers-reduced-motion:reduce) {
+    .caret,.stream-caret,.thinking i { animation:none; }
+    .cell,.items li,.turn { animation:none; }
+    .bar i,.readiness i { transition:none; }
+  }
+</style>
+</head>
+<body>
+<div class="tip" id="tip"></div>
+<div class="crash" id="crash"></div>
+<div class="shell">
+
+  <header>
+    <div class="wordmark"><i class="mark"></i><b>Synthetic Panel</b> <span>— survey pretesting</span></div>
+    <div class="masthead-note">Benchmarked against human survey data</div>
+    <button class="restart" id="restart" type="button">Start over</button>
+  </header>
+
+  <main>
+    <!-- landing -->
+    <div class="stage" id="stage">
+      <h1 class="prompt"><span id="typed"></span><i class="caret" id="caret"></i></h1>
+      <form class="field" id="field" autocomplete="off">
+        <input id="entry" type="text" aria-label="What should the survey be about?">
+        <button class="go" id="go" type="submit" aria-label="Continue">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"
+               stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10M9 4l4 4-4 4"/></svg>
+        </button>
+      </form>
+      <div class="suggestions" id="suggestions"><span class="label">Try</span></div>
+    </div>
+
+    <!-- workspace -->
+    <div class="workspace" id="workspace">
+      <div class="column">
+        <div class="thread" id="thread"></div>
+        <div class="composer">
+          <form id="composer">
+            <textarea id="reply" rows="1" placeholder="Reply…" aria-label="Your reply"></textarea>
+            <button class="send" id="send" type="submit" aria-label="Send">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"
+                   stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M4 7l4-4 4 4"/></svg>
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <aside class="panel">
+        <div class="panel-head">
+          <span class="panel-title">Panel</span>
+          <span class="panel-count"><span id="pcount">—</span><small>respondents</small></span>
+        </div>
+        <div class="panel-pop" id="ppop">Not yet specified.</div>
+        <div class="steps" id="psteps"></div>
+        <div class="readiness"><i id="pready"></i></div>
+
+        <div class="peek" id="ppeek">
+          <span id="ppeektext">Viewing an earlier stage.</span>
+          <button type="button" id="ppeekback">Back to current</button>
+        </div>
+
+        <!-- stage 1 : who -->
+        <div class="view" id="view1">
+          <div class="stats">
+            <div class="stat"><b id="sage">—</b><span>Mean age</span></div>
+            <div class="stat"><b id="ssplit">—</b><span id="ssplitlab">Split</span></div>
+            <div class="stat"><b id="sn">—</b><span>Panel size</span></div>
+          </div>
+          <div class="tintbar" id="ptint"><span class="lab">Shade by</span></div>
+          <div class="grid" id="pgrid"></div>
+          <div class="legend" id="plegend"></div>
+          <div class="section">
+            <h3>Composition</h3>
+            <div class="dims" id="pdims"><div class="empty">No dimensions set.</div></div>
+          </div>
+        </div>
+
+        <!-- stage 2 : what is measured -->
+        <div class="view" id="view2">
+          <div class="scope" id="cscope" style="display:none">
+            <div class="scope-ring">
+              <div class="lbl">Measuring</div>
+              <div class="nm3" id="cname"></div>
+              <div class="df" id="cdef"></div>
+            </div>
+            <div class="orbit-lab" id="coutlab" style="display:none">Deliberately outside</div>
+            <div class="orbit" id="cexcl"></div>
+            <div class="decides" id="cdecwrap" style="display:none">
+              <div class="k2">This decides</div>
+              <div class="v2" id="cdec"></div>
+            </div>
+          </div>
+          <div class="scope-empty" id="cempty">
+            Nothing scoped yet. This stage draws the boundary — the one thing being
+            measured, and the neighbouring things deliberately left out of it.
+          </div>
+        </div>
+
+        <!-- stage 3 : the questionnaire -->
+        <div class="view" id="view3">
+          <div class="form-prev" id="pform"></div>
+          <div class="empty" id="pform-empty">No items drafted yet.</div>
+        </div>
+
+        <!-- stage 4 : benchmark -->
+        <div class="view" id="view4">
+          <div class="src" id="psrc" style="display:none">
+            <div class="nm2" id="bsrc"></div>
+            <div class="it" id="bitem"></div>
+            <div class="nt" id="bnote"></div>
+          </div>
+          <div class="empty" id="pbench-empty">No benchmark identified yet.</div>
+        </div>
+
+        <!-- stage 5 : ready -->
+        <div class="view" id="view5">
+          <div class="kv"><div class="k">Population</div><div class="v small" id="rpop">—</div></div>
+          <div class="kv"><div class="k">Construct</div><div class="v small" id="rcon">—</div></div>
+          <div class="kv"><div class="k">Items</div><div class="v small" id="rit">—</div></div>
+          <div class="kv"><div class="k">Benchmark</div><div class="v small" id="rben">—</div></div>
+          <div class="section">
+            <h3>Run on the panel</h3>
+            <div class="itempick" id="ritems"></div>
+            <div class="runbar">
+              <button class="runbtn" id="runbtn" type="button">Run</button>
+              <select class="nsel" id="rn">
+                <option value="10">10 respondents</option>
+                <option value="20" selected>20 respondents</option>
+                <option value="40">40 respondents</option>
+                <option value="60">60 respondents</option>
+              </select>
+              <span class="runnote" id="runnote">one API call each</span>
+            </div>
+            <div class="progress"><i id="rprog"></i></div>
+            <div class="progress-lab" id="rproglab"></div>
+            <div class="rgrid" id="rgrid"></div>
+            <div class="hist" id="rhist"></div>
+            <div class="spread" id="rspread" style="display:none">
+              <div class="stat"><b id="rmean">—</b><span>Mean</span></div>
+              <div class="stat"><b id="rsd">—</b><span>Std dev</span></div>
+              <div class="stat"><b id="rmodal">—</b><span>Modal share</span></div>
+            </div>
+            <div class="finding" id="rfinding" style="display:none"></div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+      <p>Generates responses from demographically conditioned language models, then measures how far they drift from real respondents.</p>
+      <span>Research preview</span>
+    </div>
+  </footer>
+
+</div>
+
+<script>
+window.addEventListener('error', function (e) {
+  var el = document.getElementById('crash');
+  if (!el) return;
+  el.textContent = 'JS error: ' + e.message + '  (' + (e.filename || '') + ':' + e.lineno + ')';
+  el.classList.add('on');
+});
+
+(function () {
+  var HEADLINE = 'Hello. I want to build a survey for';
+  var PLACEHOLDERS = ['attitudes toward AI at work…','how shoppers over 60 pick a brand…',
+                      'trust in online reviews…','remote work preferences by income…'];
+  var CHIPS = ['attitudes toward AI at work','trust in online reviews','remote work preferences'];
+  var SENTINEL = '§SPEC§';
+  var SCALES = { agree5:'5-pt agree', freq5:'5-pt frequency', binary:'yes / no' };
+
+  var $ = function (id) { return document.getElementById(id); };
+  var typed=$('typed'), caret=$('caret'), field=$('field'), entry=$('entry'), go=$('go'),
+      sugg=$('suggestions'), thread=$('thread'), composer=$('composer'), reply=$('reply'),
+      send=$('send'), restart=$('restart');
+  var pcount=$('pcount'), ppop=$('ppop'), pready=$('pready'), pgrid=$('pgrid'),
+      pdims=$('pdims'), pitems=$('pitems'), pitemsEmpty=$('pitems-empty'), pbench=$('pbench'),
+      sage=$('sage'), ssplit=$('ssplit'), ssplitlab=$('ssplitlab'), sn=$('sn'),
+      ptint=$('ptint'), plegend=$('plegend'), tip=$('tip'), psteps=$('psteps'),
+      ppeek=$('ppeek'), ppeektext=$('ppeektext'), ppeekback=$('ppeekback'),
+      pform=$('pform'), pformEmpty=$('pform-empty'), psrc=$('psrc'),
+      pbenchEmpty=$('pbench-empty');
+  var STAGES = ['Respondent','Construct','Items','Benchmark','Run'];
+  var SCALE_POINTS = {
+    agree5: ['Strongly disagree','Disagree','Neutral','Agree','Strongly agree'],
+    freq5:  ['Never','Rarely','Sometimes','Often','Always'],
+    binary: ['Yes','No']
+  };
+  var viewStage = null;   // null = follow the live stage
+  var tintBy = null;
+
+  var history = [];
+  var busy = false;
+  var spec = null;
+  var lastSignatures = [];
+  var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ---------------- deterministic sampling ---------------- */
+  // Per-respondent seeded RNG: respondent i keeps its identity across spec
+  // updates, so refining a distribution only moves the people near a boundary.
+  function rngFor(i) {
+    var s = (0x9E3779B9 ^ (i * 2654435761)) >>> 0;
+    return function () {
+      s |= 0; s = (s + 0x6D2B79F5) | 0;
+      var t = Math.imul(s ^ (s >>> 15), 1 | s);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function pick(levels, r) {
+    var total = levels.reduce(function (a, l) { return a + (+l.pct || 0); }, 0) || 1;
+    var x = r * total, acc = 0;
+    for (var i = 0; i < levels.length; i++) {
+      acc += (+levels[i].pct || 0);
+      if (x <= acc) return levels[i].label;
+    }
+    return levels[levels.length - 1].label;
+  }
+
+  // "30-49" -> a concrete age; "65+" -> 65..79
+  function ageFrom(label, r) {
+    var range = String(label).match(/(\d+)\s*[-–]\s*(\d+)/);
+    if (range) return Math.floor(+range[1] + r * (+range[2] - +range[1] + 1));
+    var plus = String(label).match(/(\d+)\s*\+/);
+    if (plus) return Math.floor(+plus[1] + r * 15);
+    var one = String(label).match(/(\d+)/);
+    return one ? +one[1] : 40;
+  }
+
+  function humanize(name) {
+    var t = String(name).replace(/[_-]+/g, ' ').trim();
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  }
+
+  function abbrev(label) {
+    var s = String(label);
+    if (/^(fe)?male$/i.test(s)) return s[0].toUpperCase();
+    var words = s.split(/[\s\-\/]+/).filter(Boolean);
+    if (words.length > 1) return words.map(function (w) { return w[0]; }).join('').toUpperCase().slice(0, 3);
+    return s.slice(0, 3).toUpperCase();
+  }
+
+  function dimBy(name) {
+    if (!spec || !spec.dimensions) return null;
+    for (var i = 0; i < spec.dimensions.length; i++) {
+      if (String(spec.dimensions[i].name || '').toLowerCase().indexOf(name) === 0) return spec.dimensions[i];
+    }
+    return null;
+  }
+
+  function sample(n) {
+    var dims = spec.dimensions || [];
+    var ageD = dimBy('age'), genD = dimBy('gender') || dimBy('sex');
+    var out = [];
+    for (var i = 0; i < n; i++) {
+      var r = rngFor(i), vals = {};
+      for (var k = 0; k < dims.length; k++) vals[dims[k].name] = pick(dims[k].levels || [], r());
+      // Only render what the spec actually specifies. Inventing a fallback age or
+      // gender re-introduces variation the person just removed.
+      var a = ageD ? ageFrom(vals[ageD.name], r()) : null;
+      out.push({
+        age: a,
+        gender: genD ? abbrev(vals[genD.name]) : null,
+        vals: vals,
+        female: genD ? /^f/i.test(vals[genD.name]) : null
+      });
+    }
+    return out;
+  }
+
+  // Shading turns 60 identical cells into a visible distribution.
+  function shade(idx) {
+    return 'color-mix(in srgb, var(--accent) ' + (7 + idx * 12) + '%, var(--surface))';
+  }
+  function tintDim() {
+    var dims = spec && spec.dimensions ? spec.dimensions : [];
+    if (!dims.length) return null;
+    for (var i = 0; i < dims.length; i++) if (dims[i].name === tintBy) return dims[i];
+    return dims[0];
+  }
+
+  /* ---------------- panel rendering ---------------- */
+  function attachTip(cell, person, i) {
+    cell.addEventListener('mouseenter', function () {
+      var td = tintDim();
+      var rows = '<b>Respondent ' + (i + 1) + '</b>';
+      if (person.age !== null) {
+        var lit = td && /^age/i.test(td.name) ? ' lit' : '';
+        rows += '<div class="row' + lit + '"><span class="k">Age</span>' +
+                '<span class="v">' + person.age + '</span></div>';
+      }
+      Object.keys(person.vals).forEach(function (k) {
+        if (/^age/i.test(k)) return;
+        var lit = td && td.name === k ? ' lit' : '';
+        rows += '<div class="row' + lit + '"><span class="k">' + humanize(k) + '</span>' +
+                '<span class="v">' + person.vals[k] + '</span></div>';
+      });
+      tip.innerHTML = rows;
+      var r = cell.getBoundingClientRect();
+      tip.classList.add('on');
+      var tw = tip.offsetWidth, th = tip.offsetHeight;
+      var left = Math.min(window.innerWidth - tw - 10, Math.max(10, r.left + r.width / 2 - tw / 2));
+      var top = r.top - th - 9;
+      if (top < 10) top = r.bottom + 9;
+      tip.style.left = left + 'px';
+      tip.style.top = top + 'px';
+    });
+    cell.addEventListener('mouseleave', function () { tip.classList.remove('on'); });
+  }
+
+  function ghosts(n) {
+    pgrid.innerHTML = '';
+    for (var i = 0; i < n; i++) {
+      var c = document.createElement('div');
+      c.className = 'cell ghost';
+      c.style.animationDelay = Math.min(i * 6, 400) + 'ms';
+      pgrid.appendChild(c);
+    }
+  }
+
+  function renderPanel() {
+    if (!spec) return;
+    var n = Math.max(1, Math.min(200, +spec.n || 60));
+    pcount.textContent = n;
+    ppop.textContent = spec.population || 'Not yet specified.';
+    pready.style.width = Math.max(0, Math.min(100, +spec.ready || 0)) + '%';
+
+
+
+    // people
+    var people = sample(n);
+    var td = tintDim();
+    var ageDim0 = dimBy('age');
+    var ageDimName = ageDim0 ? ageDim0.name : null;
+    var levels = td ? (td.levels || []) : [];
+    var indexOfLevel = {};
+    levels.forEach(function (l, i) { indexOfLevel[l.label] = i; });
+
+    var gd0 = dimBy('gender') || dimBy('sex');
+    var sigs = people.map(function (p) { return p.age + '|' + JSON.stringify(p.vals); });
+    pgrid.innerHTML = '';
+    people.forEach(function (p, i) {
+      var c = document.createElement('div');
+      var changed = lastSignatures.length && lastSignatures[i] !== sigs[i];
+      c.className = 'cell' + (changed && !reduced ? ' flash' : '');
+      c.style.animationDelay = Math.min(i * 5, 320) + 'ms';
+      if (td) {
+        var li = indexOfLevel[p.vals[td.name]];
+        if (li !== undefined) c.style.background = shade(li);
+      }
+
+      // headline is the age when we have one; the second line always carries the
+      // dimension currently being shaded, so no dimension is unreachable
+      var shadeVal = td ? abbrev(p.vals[td.name]) : null;
+      var shadeIsAge = td && ageDimName && td.name === ageDimName;
+      var shadeIsGender = td && gd0 && td.name === gd0.name;
+
+      var head = p.age !== null ? String(p.age) : (shadeVal || '·');
+      var bits = [];
+      if (p.gender && !shadeIsGender) bits.push(p.gender);
+      if (shadeVal && !shadeIsAge && head !== shadeVal) bits.push(shadeVal);
+      if (!bits.length && p.gender) bits.push(p.gender);
+
+      var a = document.createElement('span'); a.className = 'age'; a.textContent = head;
+      var m = document.createElement('span'); m.className = 'meta'; m.textContent = bits.join(' · ');
+      c.appendChild(a); c.appendChild(m);
+      attachTip(c, p, i);
+      pgrid.appendChild(c);
+    });
+    lastSignatures = sigs;
+
+    // summary strip
+    var ages = people.map(function (p) { return parseInt(p.age, 10); })
+                     .filter(function (v) { return !isNaN(v); });
+    sage.textContent = ages.length
+      ? Math.round(ages.reduce(function (a, v) { return a + v; }, 0) / ages.length)
+      : '—';
+    var gd = dimBy('gender') || dimBy('sex');
+    if (gd) {
+      var fem = people.filter(function (p) { return p.female; }).length;
+      ssplit.textContent = Math.round(fem / people.length * 100) + '%';
+      ssplitlab.textContent = 'Female';
+    } else if (levels.length) {
+      var top = people.filter(function (p) { return p.vals[td.name] === levels[0].label; }).length;
+      ssplit.textContent = Math.round(top / people.length * 100) + '%';
+      ssplitlab.textContent = levels[0].label;
+    } else { ssplit.textContent = '—'; ssplitlab.textContent = 'Split'; }
+    sn.textContent = n;
+
+    // shade-by control
+    ptint.innerHTML = '<span class="lab">Shade by</span>';
+    (spec.dimensions || []).forEach(function (d) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'tint' + (td && d.name === td.name ? ' on' : '');
+      b.textContent = humanize(d.name);
+      b.addEventListener('click', function () { tintBy = d.name; renderPanel(); });
+      ptint.appendChild(b);
+    });
+
+    // legend
+    plegend.innerHTML = '';
+    levels.forEach(function (l, i) {
+      var sp = document.createElement('span');
+      var sw = document.createElement('i'); sw.style.background = shade(i);
+      sp.appendChild(sw);
+      sp.appendChild(document.createTextNode(l.label));
+      plegend.appendChild(sp);
+    });
+
+    // composition
+    var dims = spec.dimensions || [];
+    pdims.innerHTML = '';
+    if (!dims.length) {
+      pdims.innerHTML = '<div class="empty">No dimensions set.</div>';
+    } else {
+      dims.forEach(function (d) {
+        var wrap = document.createElement('div');
+        var name = document.createElement('div');
+        name.className = 'dim-name'; name.textContent = humanize(d.name || '');
+        var bar = document.createElement('div'); bar.className = 'bar';
+        var legend = document.createElement('div'); legend.className = 'dim-legend';
+        var levels = d.levels || [];
+        var total = levels.reduce(function (a, l) { return a + (+l.pct || 0); }, 0) || 1;
+        levels.forEach(function (l, i) {
+          var seg = document.createElement('i');
+          seg.style.width = ((+l.pct || 0) / total * 100) + '%';
+          // stepped tint so segments read apart without a colour system
+          seg.style.background = 'color-mix(in srgb, var(--accent) ' + (78 - i * 15) + '%, transparent)';
+          bar.appendChild(seg);
+          var tag = document.createElement('span');
+          tag.textContent = l.label + ' ' + (+l.pct || 0) + '%';
+          legend.appendChild(tag);
+        });
+        wrap.appendChild(name); wrap.appendChild(bar); wrap.appendChild(legend);
+        pdims.appendChild(wrap);
+      });
+    }
+
+    renderStageViews();
+  }
+
+  // ---------- per-stage views ----------
+  function renderStageViews() {
+    var c = spec.construct || {};
+    var hasC = !!(c.name || c.definition);
+    $('cscope').style.display = hasC ? 'block' : 'none';
+    $('cempty').style.display = hasC ? 'none' : 'block';
+    if (hasC) {
+      $('cname').textContent = c.name || '';
+      $('cdef').textContent  = c.definition || '';
+      var ex = $('cexcl'); ex.innerHTML = '';
+      (c.excludes || []).forEach(function (t, i) {
+        var sp = document.createElement('span');
+        sp.className = 'out'; sp.textContent = t;
+        sp.style.animationDelay = (140 + i * 70) + 'ms';
+        ex.appendChild(sp);
+      });
+      $('coutlab').style.display = (c.excludes || []).length ? 'block' : 'none';
+      $('cdecwrap').style.display = c.decision ? 'block' : 'none';
+      $('cdec').textContent = c.decision || '';
+    }
+
+    var items = spec.items || [];
+    pform.innerHTML = '';
+    pform.style.display = items.length ? 'block' : 'none';
+    pformEmpty.style.display = items.length ? 'none' : 'block';
+    items.forEach(function (it, i) {
+      var q = document.createElement('div'); q.className = 'q';
+      var n = document.createElement('div'); n.className = 'qn'; n.textContent = 'Q' + (i + 1);
+      var t = document.createElement('div'); t.className = 'qt'; t.textContent = it.text || '';
+      var sc = document.createElement('div'); sc.className = 'scale';
+      (SCALE_POINTS[it.scale] || SCALE_POINTS.agree5).forEach(function (pt) {
+        var b = document.createElement('span'); b.textContent = pt; sc.appendChild(b);
+      });
+      q.appendChild(n); q.appendChild(t); q.appendChild(sc);
+      pform.appendChild(q);
+    });
+
+    // tolerate both the object shape and the earlier plain-string benchmark
+    var b = spec.benchmark;
+    if (typeof b === 'string') b = { source: b, item: '', note: '' };
+    if (b && b.source) {
+      psrc.style.display = 'block'; pbenchEmpty.style.display = 'none';
+      $('bsrc').textContent  = b.source;
+      $('bitem').textContent = b.item || '';
+      $('bnote').textContent = b.note || '';
+    } else {
+      psrc.style.display = 'none'; pbenchEmpty.style.display = 'block';
+    }
+
+    renderRunItems();
+    $('rpop').textContent = spec.population || '—';
+    $('rcon').textContent = c.name || '—';
+    $('rit').textContent  = items.length ? items.length + ' items drafted' : '—';
+    $('rben').textContent = (b && b.source) || '—';
+
+    showStage(viewStage || liveStage());
+  }
+
+  function liveStage() {
+    return Math.max(1, Math.min(5, +((spec && spec.stage) || 1)));
+  }
+
+  function showStage(which) {
+    for (var i = 1; i <= 5; i++) {
+      var v = $('view' + i);
+      if (v) v.classList.toggle('on', i === which);
+    }
+    var current = liveStage();
+    var peeking = viewStage !== null && viewStage !== current;
+    ppeek.classList.toggle('on', peeking);
+    if (peeking) {
+      ppeektext.textContent = 'Viewing ' + STAGES[which - 1].toLowerCase() + ', an earlier stage.';
+    }
+    renderSteps(current, which);
+  }
+
+  function renderSteps(current, showing) {
+    psteps.innerHTML = '';
+    STAGES.forEach(function (name, i) {
+      var no = i + 1;
+      var d = document.createElement('div');
+      var cls = 'step';
+      if (no < current) cls += ' done';
+      if (no === current) cls += ' now';
+      if (no <= current) cls += ' clickable';
+      if (no === showing && no !== current) cls += ' viewing';
+      d.className = cls;
+      d.innerHTML = '<span class="no">' + no + '</span><span class="nm">' + name + '</span>';
+      if (no <= current) {
+        d.addEventListener('click', function () {
+          viewStage = (no === current) ? null : no;
+          showStage(no);
+        });
+      }
+      psteps.appendChild(d);
+    });
+  }
+
+  // ---------- running the panel ----------
+  var runItem = 0, running = false, answers = [];
+
+  function profileOf(p) {
+    var bits = [];
+    if (p.age !== null) bits.push('Age ' + p.age);
+    Object.keys(p.vals).forEach(function (k) {
+      if (/^age/i.test(k)) return;
+      bits.push(p.vals[k]);
+    });
+    return bits.join(' · ');
+  }
+
+  function renderRunItems() {
+    var items = spec.items || [];
+    var box = $('ritems'); box.innerHTML = '';
+    items.forEach(function (it, i) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = i === runItem ? 'sel' : '';
+      b.textContent = 'Q' + (i + 1) + '.  ' + it.text;
+      b.addEventListener('click', function () {
+        if (running) return;
+        runItem = i; answers = []; renderRunItems(); renderResults(0);
+      });
+      box.appendChild(b);
+    });
+    $('runbtn').disabled = !items.length || running;
+    $('runnote').textContent = items.length
+      ? $('rn').value + ' API calls, one per respondent'
+      : 'Draft an item first';
+  }
+
+  function renderResults(total) {
+    var scale = (spec.items || [])[runItem];
+    var points = SCALE_POINTS[(scale && scale.scale) || 'agree5'] || SCALE_POINTS.agree5;
+
+    var grid = $('rgrid'); grid.innerHTML = '';
+    for (var i = 0; i < total; i++) {
+      var a = answers[i];
+      var c = document.createElement('div');
+      c.className = 'rcell' + (a && a.value ? ' filled' : (a && a.error ? ' failed' : ''));
+      if (a && a.value) {
+        c.textContent = a.value;
+        c.style.background = 'color-mix(in srgb, var(--accent) ' +
+          (6 + (a.value - 1) * (46 / Math.max(1, points.length - 1))) + '%, var(--surface))';
+        c.title = a.profile + ' → ' + points[a.value - 1];
+      } else if (a && a.error) { c.textContent = '×'; c.title = a.error; }
+      grid.appendChild(c);
+    }
+
+    var vals = answers.filter(function (a) { return a && a.value; }).map(function (a) { return a.value; });
+    var counts = points.map(function (_, i) {
+      return vals.filter(function (v) { return v === i + 1; }).length;
+    });
+    var peak = Math.max.apply(null, counts.concat([1]));
+
+    var hist = $('rhist'); hist.innerHTML = '';
+    counts.forEach(function (n, i) {
+      var b = document.createElement('div'); b.className = 'hbar';
+      var ct = document.createElement('div'); ct.className = 'ct'; ct.textContent = n || '';
+      var col = document.createElement('div'); col.className = 'col';
+      var lb = document.createElement('div'); lb.className = 'lb'; lb.textContent = points[i];
+      b.appendChild(ct); b.appendChild(col); b.appendChild(lb);
+      hist.appendChild(b);
+      requestAnimationFrame(function () { col.style.height = (n / peak * 88) + '%'; });
+    });
+
+    if (vals.length >= 2) {
+      var mean = vals.reduce(function (a, v) { return a + v; }, 0) / vals.length;
+      var variance = vals.reduce(function (a, v) { return a + (v - mean) * (v - mean); }, 0) / vals.length;
+      var sd = Math.sqrt(variance);
+      var modal = Math.max.apply(null, counts) / vals.length;
+      $('rspread').style.display = 'flex';
+      $('rmean').textContent = mean.toFixed(2);
+      $('rsd').textContent = sd.toFixed(2);
+      $('rmodal').textContent = Math.round(modal * 100) + '%';
+
+      var fin = $('rfinding');
+      fin.style.display = 'block';
+      if (sd < 0.35) {
+        fin.textContent = 'Near-zero variance: ' + Math.round(modal * 100) + '% of respondents ' +
+          'gave the same answer despite differing profiles. Real populations do not do this — ' +
+          'this is the homogeneity artefact, and it is the measurement worth reporting.';
+      } else if (sd < 0.8) {
+        fin.textContent = 'Low spread (SD ' + sd.toFixed(2) + '). Human samples on 5-point ' +
+          'attitude items typically run nearer SD 1.0-1.3.';
+      } else {
+        fin.textContent = 'Spread (SD ' + sd.toFixed(2) + ') is in the range real survey ' +
+          'samples usually show. Compare against the benchmark crosstab before trusting it.';
+      }
+    } else {
+      $('rspread').style.display = 'none';
+      $('rfinding').style.display = 'none';
+    }
+  }
+
+  function runPanel() {
+    var items = spec.items || [];
+    if (running || !items.length) return;
+    var item = items[runItem];
+    var n = parseInt($('rn').value, 10) || 20;
+    var people = sample(n);
+
+    running = true; answers = [];
+    $('runbtn').disabled = true;
+    $('runbtn').textContent = 'Running…';
+    renderResults(n);
+
+    var CHUNK = 5, at = 0;
+
+    function nextChunk() {
+      if (at >= n) { finish(); return; }
+      var slice = [];
+      for (var i = at; i < Math.min(at + CHUNK, n); i++) {
+        slice.push({ id: i, profile: profileOf(people[i]) });
+      }
+      fetch('/api/respond', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: item.text, scale: item.scale || 'agree5', personas: slice })
+      }).then(function (r) { return r.json(); }).then(function (data) {
+        if (data.error) throw new Error(data.error);
+        (data.answers || []).forEach(function (a) {
+          answers[a.id] = { value: a.value, error: a.error, profile: profileOf(people[a.id]) };
+        });
+        at += CHUNK;
+        $('rprog').style.width = Math.min(100, at / n * 100) + '%';
+        $('rproglab').textContent = Math.min(at, n) + ' of ' + n + ' answered';
+        renderResults(n);
+        nextChunk();
+      }).catch(function (err) {
+        $('rproglab').textContent = 'Stopped: ' + err.message;
+        finish();
+      });
+    }
+
+    function finish() {
+      running = false;
+      $('runbtn').disabled = false;
+      $('runbtn').textContent = 'Run again';
+      renderRunItems();
+    }
+
+    nextChunk();
+  }
+
+  $('runbtn').addEventListener('click', runPanel);
+  $('rn').addEventListener('change', renderRunItems);
+
+  ppeekback.addEventListener('click', function () {
+    viewStage = null; showStage(liveStage());
+  });
+
+  function mergeInto(current, patch) {
+    var out = {};
+    if (current && typeof current === 'object') {
+      Object.keys(current).forEach(function (k) { out[k] = current[k]; });
+    }
+    Object.keys(patch).forEach(function (k) {
+      var v = patch[k];
+      if (v === null || v === undefined || v === '') return;
+      if (Array.isArray(v) && !v.length) return;
+      out[k] = v;
+    });
+    return out;
+  }
+
+  function salvageOptions(text) {
+    // last-ditch: a truncated patch should still yield buttons
+    var m = text.match(/"options"\s*:\s*\[([^\]]*)\]/);
+    if (!m) return null;
+    var out = [];
+    var re = /"((?:[^"\\]|\\.)*)"/g, hit;
+    while ((hit = re.exec(m[1]))) out.push(hit[1]);
+    return out.length ? out : null;
+  }
+
+  function applySpec(raw) {
+    var text = String(raw).trim().replace(/^```(json)?/i, '').replace(/```$/, '').trim();
+    var start = text.indexOf('{'), end = text.lastIndexOf('}');
+    var next = null;
+    if (start >= 0 && end > start) {
+      try { next = JSON.parse(text.slice(start, end + 1)); } catch (e) { next = null; }
+    }
+    if (!next) {
+      var rescued = salvageOptions(text);
+      if (rescued) renderOptions(rescued);
+      if (window.console) console.warn('spec patch unparseable; kept previous state');
+      return;
+    }
+    // A patch carries only what changed, so nested objects must be merged field by
+    // field. Replacing them wholesale blanks every field the patch happened to omit.
+    spec = spec || {};
+    ['population','n','ready','stage'].forEach(function (k) {
+      if (next[k] !== undefined && next[k] !== null && next[k] !== '') spec[k] = next[k];
+    });
+
+    if (next.construct && typeof next.construct === 'object') {
+      spec.construct = mergeInto(spec.construct, next.construct);
+    }
+    if (typeof next.benchmark === 'string' && next.benchmark) {
+      spec.benchmark = mergeInto(spec.benchmark, { source: next.benchmark });
+    } else if (next.benchmark && typeof next.benchmark === 'object') {
+      spec.benchmark = mergeInto(spec.benchmark, next.benchmark);
+    }
+    if (next.dimensions && next.dimensions.length) spec.dimensions = next.dimensions;
+    if (next.items && next.items.length) spec.items = next.items;
+    viewStage = null;
+    renderPanel();
+    renderOptions(next.options);
+  }
+
+  /* ---------------- hero ---------------- */
+  CHIPS.forEach(function (text) {
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'chip'; b.textContent = text;
+    b.addEventListener('click', function () { entry.value = text; entry.focus(); syncGo(); });
+    sugg.appendChild(b);
+  });
+  function syncGo() { go.classList.toggle('live', entry.value.trim().length > 0); }
+  entry.addEventListener('input', syncGo);
+
+  var slot = 0;
+  function rotate() {
+    entry.placeholder = PLACEHOLDERS[slot++ % PLACEHOLDERS.length];
+    setInterval(function () {
+      if (entry.value || document.activeElement === entry) return;
+      entry.placeholder = PLACEHOLDERS[slot++ % PLACEHOLDERS.length];
+    }, 3400);
+  }
+  function reveal() {
+    caret.classList.add('done'); field.classList.add('ready');
+    sugg.classList.add('ready'); rotate();
+    setTimeout(function () { entry.focus(); }, 220);
+  }
+  if (reduced) { typed.textContent = HEADLINE; reveal(); }
+  else {
+    var i = 0;
+    (function type() {
+      if (i <= HEADLINE.length) {
+        typed.textContent = HEADLINE.slice(0, i);
+        var ch = HEADLINE.charAt(i - 1); i++;
+        setTimeout(type, ch === '.' ? 380 : 30 + Math.random() * 42);
+      } else setTimeout(reveal, 260);
+    })();
+  }
+
+  /* ---------------- turns ---------------- */
+  function addUser(text) {
+    var el = document.createElement('div'); el.className = 'turn user';
+    var label = document.createElement('span'); label.textContent = 'You';
+    var body = document.createElement('div'); body.className = 'body'; body.textContent = text;
+    el.appendChild(label); el.appendChild(body); thread.appendChild(el);
+  }
+  function addThinking(note) {
+    var el = document.createElement('div'); el.className = 'thinking';
+    el.innerHTML = '<i></i><i></i><i></i>';
+    if (note) {
+      var n = document.createElement('span'); n.className = 'note'; n.textContent = note;
+      el.appendChild(n);
+    }
+    thread.appendChild(el); return el;
+  }
+  function addModel() {
+    var el = document.createElement('div'); el.className = 'turn model';
+    var span = document.createElement('span');
+    var cur = document.createElement('i'); cur.className = 'stream-caret';
+    el.appendChild(span); el.appendChild(cur); thread.appendChild(el);
+    return { el: el, span: span, caret: cur };
+  }
+  function clearOptions() {
+    var old = thread.querySelectorAll('.options');
+    for (var i = 0; i < old.length; i++) old[i].remove();
+  }
+
+  function renderOptions(list) {
+    clearOptions();
+    if (!list || !list.length) return;
+    var box = document.createElement('div');
+    box.className = 'options';
+
+    list.slice(0, 4).forEach(function (text, i) {
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'opt'; b.textContent = text;
+      b.style.animationDelay = (i * 55) + 'ms';
+      b.addEventListener('click', function () { answer(text); });
+      box.appendChild(b);
+    });
+
+    // always leave a way out of the multiple choice — this swaps itself for an
+    // inline field and leaves the question and the other options untouched
+    var free = document.createElement('button');
+    free.type = 'button'; free.className = 'opt free';
+    free.textContent = 'Something else…';
+    free.style.animationDelay = (list.length * 55) + 'ms';
+    free.addEventListener('click', function () {
+      var wrap = document.createElement('div');
+      wrap.className = 'otherbox';
+      var input = document.createElement('input');
+      input.type = 'text';
+      input.placeholder = 'Type your own answer…';
+      var ok = document.createElement('button');
+      ok.type = 'button'; ok.textContent = 'Send';
+      function submit() {
+        var v = input.value.trim();
+        if (v) answer(v);
+      }
+      ok.addEventListener('click', submit);
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); submit(); }
+        if (e.key === 'Escape') { wrap.replaceWith(free); }
+      });
+      wrap.appendChild(input); wrap.appendChild(ok);
+      free.replaceWith(wrap);
+      input.focus();
+    });
+    box.appendChild(free);
+
+    thread.appendChild(box);
+    toBottom();
+  }
+
+  function answer(text) {
+    if (busy) return;
+    clearOptions();
+    history.push({ role: 'user', text: text });
+    addUser(text);
+    ask();
+  }
+
+  function toBottom() { window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }); }
+
+  function begin(topic) {
+    document.body.classList.add('talking');
+    ghosts(60);
+    var line = 'I want to build a survey for ' + topic;
+    history.push({ role: 'user', text: line });
+    addUser(line);
+    ask();
+  }
+
+  function ask(attempt) {
+    attempt = attempt || 0;
+    busy = true; syncSend(); clearOptions();
+    var dots = addThinking(); toBottom();
+
+    fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: history, spec: spec })
+    }).then(function (res) {
+      if (!res.ok || !res.body) throw new Error('Request failed (' + res.status + ')');
+      var turn = null, failure = null;
+      var reader = res.body.getReader(), decoder = new TextDecoder();
+      var buffer = '', full = '';
+
+      return (function pump() {
+        return reader.read().then(function (chunk) {
+          if (chunk.done) {
+            dots.remove();
+            if (failure) return failure;              // leave the error text alone
+            if (!turn) return null;
+            turn.caret.remove();
+            var cut = full.indexOf(SENTINEL);
+            var prose = cut >= 0 ? full.slice(0, cut).trim() : full.trim();
+            turn.span.textContent = prose;
+            if (cut >= 0) applySpec(full.slice(cut + SENTINEL.length));
+            if (prose) history.push({ role: 'model', text: prose });
+            return null;
+          }
+          buffer += decoder.decode(chunk.value, { stream: true });
+          var lines = buffer.split('\n'); buffer = lines.pop();
+          lines.forEach(function (line) {
+            if (line.indexOf('data:') !== 0) return;
+            var payload;
+            try { payload = JSON.parse(line.slice(5).trim()); } catch (e) { return; }
+
+            if (payload.error) {
+              failure = { message: payload.error, retryAfter: +payload.retry_after || 0 };
+              return;
+            }
+            if (payload.text) {
+              if (!turn) { dots.remove(); turn = addModel(); dots = addThinking('thinking'); dots.classList.add('under'); }
+              full += payload.text;
+              var cut = full.indexOf(SENTINEL);
+              turn.span.textContent = cut >= 0 ? full.slice(0, cut).trim() : full;
+              if (cut >= 0) turn.caret.remove();
+              // keep the dots below the growing text
+              thread.appendChild(dots);
+            }
+          });
+          toBottom();
+          return pump();
+        });
+      })();
+    }).then(function (failure) {
+      if (!failure) { busy = false; syncSend(); toBottom(); if (!reduced) reply.focus(); return; }
+
+      // rate limits are expected on the free tier — wait it out rather than failing
+      if (failure.retryAfter > 0 && attempt < 2) {
+        countdown(failure.retryAfter, function () { ask(attempt + 1); });
+        return;
+      }
+      showError(failure.message);
+      busy = false; syncSend(); toBottom();
+    }).catch(function (err) {
+      dots.remove();
+      showError(err.message);
+      busy = false; syncSend(); toBottom();
+    });
+  }
+
+  function showError(message) {
+    var turn = addModel(); turn.caret.remove();
+    turn.el.classList.add('error'); turn.span.textContent = message;
+  }
+
+  function countdown(seconds, done) {
+    var box = document.createElement('div');
+    box.className = 'retry';
+    thread.appendChild(box);
+    var left = seconds;
+    function tick() {
+      box.innerHTML = 'Free-tier rate limit reached. Retrying in <b>' + left + 's</b>…';
+      if (left <= 0) { box.remove(); done(); return; }
+      left--; setTimeout(tick, 1000);
+    }
+    tick(); toBottom();
+  }
+
+  field.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var v = entry.value.trim(); if (v) begin(v);
+  });
+
+  function syncSend() { send.classList.toggle('live', reply.value.trim().length > 0 && !busy); }
+  reply.addEventListener('input', function () {
+    reply.style.height = 'auto';
+    reply.style.height = Math.min(reply.scrollHeight, 160) + 'px';
+    syncSend();
+  });
+  reply.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); composer.requestSubmit(); }
+  });
+  composer.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var v = reply.value.trim(); if (!v || busy) return;
+    reply.value = ''; reply.style.height = 'auto'; syncSend();
+    clearOptions();
+    history.push({ role: 'user', text: v }); addUser(v); ask();
+  });
+  restart.addEventListener('click', function () { location.reload(); });
+})();
+</script>
+</body>
+</html>
