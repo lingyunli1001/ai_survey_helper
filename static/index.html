@@ -111,19 +111,27 @@
   .thinking.under .note { margin-left:6px; font-size:11.5px; color:var(--faint); letter-spacing:.02em; }
   .retry { margin:-10px 0 26px; font-size:12.5px; color:var(--muted); }
 
-  .options { margin:-8px 0 30px; display:flex; flex-direction:column;
-             align-items:flex-start; gap:7px; }
+  .options { margin:2px 0 34px; display:flex; flex-wrap:wrap;
+             align-items:center; gap:5px 16px; max-width:580px; }
   .opt {
-    font:inherit; font-size:14px; line-height:1.4; text-align:left;
-    color:var(--text); background:var(--surface);
-    border:1px solid var(--rule); border-radius:10px;
-    padding:9px 14px; cursor:pointer; max-width:100%;
+    font-family:Newsreader, ui-serif, Georgia, serif; font-weight:300;
+    line-height:1.1; text-align:left; color:var(--muted);
+    background:none; border:0; padding:3px 2px; cursor:pointer; max-width:100%;
     animation:rise .34s ease both;
-    transition:border-color .16s, background .16s, transform .16s;
+    transition:color .16s, font-weight .16s;
   }
-  .opt:hover { border-color:var(--focus); transform:translateX(2px); }
-  .opt.free { color:var(--muted); background:transparent; border-style:dashed; }
-  .opt.free:hover { color:var(--text); }
+  .opt:hover { color:var(--text); font-weight:400; }
+  .opt:focus-visible { color:var(--text); outline:1px dotted var(--focus); outline-offset:3px; }
+  .opt.s1 { font-size:14px; }  .opt.s2 { font-size:18px; }
+  .opt.s3 { font-size:23px; }  .opt.s4 { font-size:29px; }
+  .opt.s5 { font-size:37px; }
+  .opt.free { font-family:Inter, sans-serif; font-size:12px; letter-spacing:.02em;
+              color:var(--faint); }
+  .opt.free:hover { color:var(--muted); font-weight:400; }
+  @media (prefers-reduced-motion:no-preference) {
+    .opt.float { animation:rise .34s ease both, drift var(--d,7s) ease-in-out infinite; }
+  }
+  @keyframes drift { 0%,100% { transform:translateY(0); } 50% { transform:translateY(-4px); } }
   .retry b { font-weight:500; font-variant-numeric:tabular-nums; }
   .thinking i { width:4px; height:4px; border-radius:50%; background:var(--faint); animation:pulse 1.25s ease-in-out infinite; }
   .thinking i:nth-child(2){ animation-delay:.16s; }
@@ -436,7 +444,7 @@
   }
   @media (prefers-reduced-motion:reduce) {
     .caret,.stream-caret,.thinking i { animation:none; }
-    .cell,.items li,.turn { animation:none; }
+    .cell,.items li,.turn,.opt { animation:none; }
     .bar i,.readiness i { transition:none; }
   }
 </style>
@@ -1254,16 +1262,34 @@ window.addEventListener('error', function (e) {
     for (var i = 0; i < old.length; i++) old[i].remove();
   }
 
+  // spread a handful of size classes so the choices read as a loose cloud of
+  // words rather than a stack of buttons — biased to the middle so no turn
+  // comes out all giant or all tiny
+  function sizeClasses(n) {
+    var pool = ['s1','s1','s2','s2','s2','s3','s3','s3','s4','s4','s5'];
+    for (var i = pool.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var t = pool[i]; pool[i] = pool[j]; pool[j] = t;
+    }
+    var out = [];
+    for (var k = 0; k < n; k++) out.push(pool[k % pool.length]);
+    return out;
+  }
+
   function renderOptions(list) {
     clearOptions();
     if (!list || !list.length) return;
     var box = document.createElement('div');
     box.className = 'options';
 
-    list.slice(0, 4).forEach(function (text, i) {
+    var sizes = sizeClasses(list.length);
+    list.slice(0, 12).forEach(function (text, i) {
       var b = document.createElement('button');
-      b.type = 'button'; b.className = 'opt'; b.textContent = text;
-      b.style.animationDelay = (i * 55) + 'ms';
+      b.type = 'button';
+      b.className = 'opt float ' + sizes[i];
+      b.textContent = text;
+      b.style.setProperty('--d', (5 + Math.random() * 4).toFixed(1) + 's');
+      b.style.animationDelay = (i * 45) + 'ms, ' + (-(Math.random() * 6)).toFixed(1) + 's';
       b.addEventListener('click', function () { answer(text); });
       box.appendChild(b);
     });
@@ -1273,7 +1299,7 @@ window.addEventListener('error', function (e) {
     var free = document.createElement('button');
     free.type = 'button'; free.className = 'opt free';
     free.textContent = 'Something else…';
-    free.style.animationDelay = (list.length * 55) + 'ms';
+    free.style.animationDelay = (list.length * 45) + 'ms';
     free.addEventListener('click', function () {
       var wrap = document.createElement('div');
       wrap.className = 'otherbox';
