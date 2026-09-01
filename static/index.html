@@ -80,13 +80,22 @@
   .go.live { opacity:1; transform:none; pointer-events:auto; }
   .go:hover { opacity:.84; }
   .go svg { width:15px; height:15px; display:block; }
-  .suggestions { margin-top:26px; display:flex; flex-wrap:wrap; gap:8px; opacity:0; transition:opacity .55s .12s; }
+  .suggestions { margin-top:28px; display:flex; flex-wrap:wrap; align-items:center;
+                 gap:6px 16px; max-width:560px; opacity:0; transition:opacity .55s .12s; }
   .suggestions.ready { opacity:1; }
-  .suggestions .label { font-size:12.5px; color:var(--faint); align-self:center; }
-  .chip { font:inherit; font-size:13px; color:var(--muted); background:var(--surface);
-          border:1px solid var(--rule-soft); border-radius:999px; padding:6px 13px;
-          cursor:pointer; transition:border-color .18s, color .18s, transform .18s; }
-  .chip:hover { color:var(--text); border-color:var(--rule); transform:translateY(-1px); }
+  .suggestions .label { font-size:11px; letter-spacing:.14em; text-transform:uppercase;
+                        color:var(--faint); align-self:center; margin-right:2px; }
+  .chip { font-family:Newsreader, ui-serif, Georgia, serif; font-weight:300;
+          line-height:1.1; color:var(--muted); background:none; border:0;
+          padding:2px 2px; cursor:pointer; transition:color .16s, font-weight .16s; }
+  .chip:hover { color:var(--text); font-weight:400; }
+  .chip:focus-visible { color:var(--text); outline:1px dotted var(--focus); outline-offset:3px; }
+  .chip.s1 { font-size:14px; }  .chip.s2 { font-size:17px; }
+  .chip.s3 { font-size:21px; }  .chip.s4 { font-size:26px; }
+  .chip.s5 { font-size:32px; }
+  @media (prefers-reduced-motion:no-preference) {
+    .chip.float { animation:drift var(--d,7s) ease-in-out infinite; }
+  }
 
   /* ---------- workspace ---------- */
   .workspace { display:none; width:100%; max-width:1420px; gap:46px; }
@@ -111,26 +120,19 @@
   .thinking.under .note { margin-left:6px; font-size:11.5px; color:var(--faint); letter-spacing:.02em; }
   .retry { margin:-10px 0 26px; font-size:12.5px; color:var(--muted); }
 
-  .options { margin:2px 0 34px; display:flex; flex-wrap:wrap;
-             align-items:center; gap:5px 16px; max-width:580px; }
+  .options { margin:-8px 0 30px; display:flex; flex-direction:column;
+             align-items:flex-start; gap:7px; }
   .opt {
-    font-family:Newsreader, ui-serif, Georgia, serif; font-weight:300;
-    line-height:1.1; text-align:left; color:var(--muted);
-    background:none; border:0; padding:3px 2px; cursor:pointer; max-width:100%;
+    font:inherit; font-size:14px; line-height:1.4; text-align:left;
+    color:var(--text); background:var(--surface);
+    border:1px solid var(--rule); border-radius:10px;
+    padding:9px 14px; cursor:pointer; max-width:100%;
     animation:rise .34s ease both;
-    transition:color .16s, font-weight .16s;
+    transition:border-color .16s, background .16s, transform .16s;
   }
-  .opt:hover { color:var(--text); font-weight:400; }
-  .opt:focus-visible { color:var(--text); outline:1px dotted var(--focus); outline-offset:3px; }
-  .opt.s1 { font-size:14px; }  .opt.s2 { font-size:18px; }
-  .opt.s3 { font-size:23px; }  .opt.s4 { font-size:29px; }
-  .opt.s5 { font-size:37px; }
-  .opt.free { font-family:Inter, sans-serif; font-size:12px; letter-spacing:.02em;
-              color:var(--faint); }
-  .opt.free:hover { color:var(--muted); font-weight:400; }
-  @media (prefers-reduced-motion:no-preference) {
-    .opt.float { animation:rise .34s ease both, drift var(--d,7s) ease-in-out infinite; }
-  }
+  .opt:hover { border-color:var(--focus); transform:translateX(2px); }
+  .opt.free { color:var(--muted); background:transparent; border-style:dashed; }
+  .opt.free:hover { color:var(--text); }
   @keyframes drift { 0%,100% { transform:translateY(0); } 50% { transform:translateY(-4px); } }
   .retry b { font-weight:500; font-variant-numeric:tabular-nums; }
   .thinking i { width:4px; height:4px; border-radius:50%; background:var(--faint); animation:pulse 1.25s ease-in-out infinite; }
@@ -444,7 +446,7 @@
   }
   @media (prefers-reduced-motion:reduce) {
     .caret,.stream-caret,.thinking i { animation:none; }
-    .cell,.items li,.turn,.opt { animation:none; }
+    .cell,.items li,.turn { animation:none; }
     .bar i,.readiness i { transition:none; }
   }
 </style>
@@ -612,7 +614,10 @@ window.addEventListener('error', function (e) {
   var HEADLINE = 'Hello. I want to build a survey for';
   var PLACEHOLDERS = ['attitudes toward AI at work…','how shoppers over 60 pick a brand…',
                       'trust in online reviews…','remote work preferences by income…'];
-  var CHIPS = ['attitudes toward AI at work','trust in online reviews','remote work preferences'];
+  var CHIPS = ['attitudes toward AI at work','trust in online reviews','remote work preferences',
+               'how Gen Z picks a bank','support for a four-day week','vaccine hesitancy by region',
+               'news sources people trust','what makes people quit a job','climate habits at home',
+               'streaming vs cable over 50'];
   var SENTINEL = '§SPEC§';
   var SCALES = { agree5:'5-pt agree', freq5:'5-pt frequency', binary:'yes / no' };
 
@@ -1200,9 +1205,14 @@ window.addEventListener('error', function (e) {
   }
 
   /* ---------------- hero ---------------- */
-  CHIPS.forEach(function (text) {
+  var chipSizes = sizeClasses(CHIPS.length);
+  CHIPS.forEach(function (text, i) {
     var b = document.createElement('button');
-    b.type = 'button'; b.className = 'chip'; b.textContent = text;
+    b.type = 'button';
+    b.className = 'chip float ' + chipSizes[i];
+    b.textContent = text;
+    b.style.setProperty('--d', (5 + Math.random() * 4).toFixed(1) + 's');
+    b.style.animationDelay = (-(Math.random() * 6)).toFixed(1) + 's';
     b.addEventListener('click', function () { entry.value = text; entry.focus(); syncGo(); });
     sugg.appendChild(b);
   });
@@ -1262,9 +1272,8 @@ window.addEventListener('error', function (e) {
     for (var i = 0; i < old.length; i++) old[i].remove();
   }
 
-  // spread a handful of size classes so the choices read as a loose cloud of
-  // words rather than a stack of buttons — biased to the middle so no turn
-  // comes out all giant or all tiny
+  // shuffle a middle-biased bag of size classes, one per item — used by the
+  // hero's floating topic words
   function sizeClasses(n) {
     var pool = ['s1','s1','s2','s2','s2','s3','s3','s3','s4','s4','s5'];
     for (var i = pool.length - 1; i > 0; i--) {
@@ -1282,14 +1291,10 @@ window.addEventListener('error', function (e) {
     var box = document.createElement('div');
     box.className = 'options';
 
-    var sizes = sizeClasses(list.length);
-    list.slice(0, 12).forEach(function (text, i) {
+    list.slice(0, 4).forEach(function (text, i) {
       var b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'opt float ' + sizes[i];
-      b.textContent = text;
-      b.style.setProperty('--d', (5 + Math.random() * 4).toFixed(1) + 's');
-      b.style.animationDelay = (i * 45) + 'ms, ' + (-(Math.random() * 6)).toFixed(1) + 's';
+      b.type = 'button'; b.className = 'opt'; b.textContent = text;
+      b.style.animationDelay = (i * 55) + 'ms';
       b.addEventListener('click', function () { answer(text); });
       box.appendChild(b);
     });
@@ -1299,7 +1304,7 @@ window.addEventListener('error', function (e) {
     var free = document.createElement('button');
     free.type = 'button'; free.className = 'opt free';
     free.textContent = 'Something else…';
-    free.style.animationDelay = (list.length * 45) + 'ms';
+    free.style.animationDelay = (list.length * 55) + 'ms';
     free.addEventListener('click', function () {
       var wrap = document.createElement('div');
       wrap.className = 'otherbox';

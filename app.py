@@ -115,13 +115,12 @@ Field reference — no markdown fences, nothing after the JSON:
               "note": one line on how comparable it really is}
   ready       integer 0-100, how completely specified the survey is overall
   options     REQUIRED every single turn, never omitted, never empty.
-              array of 5-9 short strings — the concrete answers a person could give to
+              array of 2-4 short strings — the concrete answers a person could give to
               the question you just asked. Each a genuinely DIFFERENT direction, not a
-              rephrasing. Written as the person would say them, first person, as short
-              as you can make them — ideally one to four words, never more than eight.
-              No numbering, no trailing punctuation. The interface adds its own
-              free-text escape, so never include an "other" option yourself. Emit
-              fresh options every turn.
+              rephrasing. Written as the person would say them, first person, at most
+              about eight words. No numbering, no trailing punctuation. The interface
+              adds its own free-text escape, so never include an "other" option
+              yourself. Emit fresh options every turn.
 
 Never send a field just to repeat its current value."""
 
