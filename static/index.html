@@ -1006,6 +1006,8 @@ window.addEventListener('error', function (e) {
 
   function renderRunItems() {
     var items = spec.items || [];
+    // items can now shrink, so a stale selection would index past the end
+    if (runItem >= items.length) { runItem = Math.max(0, items.length - 1); answers = []; }
     var box = $('ritems'); box.innerHTML = '';
     items.forEach(function (it, i) {
       var b = document.createElement('button');
@@ -1159,6 +1161,39 @@ window.addEventListener('error', function (e) {
     return out;
   }
 
+  // Items merge by id so the model never retransmits wording it is not changing.
+  // Re-emitting the whole list would let it quietly reword an approved question.
+  function mergeItems(current, patch) {
+    var out = (current || []).slice();
+    patch.forEach(function (it) {
+      if (!it || typeof it !== 'object') return;
+      var at = -1;
+      if (it.id) {
+        for (var i = 0; i < out.length; i++) {
+          if (out[i].id === it.id) { at = i; break; }
+        }
+      }
+      if (it.remove) { if (at >= 0) out.splice(at, 1); return; }
+      if (at >= 0) {
+        out[at] = {
+          id: out[at].id,
+          text: it.text || out[at].text,
+          scale: it.scale || out[at].scale
+        };
+        return;
+      }
+      // Unknown id, or none at all: append. Preferring append over replace means a
+      // forgotten id surfaces as a visible duplicate instead of silent data loss.
+      if (!it.text) return;
+      out.push({
+        id: it.id || 'q' + (out.length + 1),
+        text: it.text,
+        scale: it.scale || 'agree5'
+      });
+    });
+    return out;
+  }
+
   function salvageOptions(text) {
     // last-ditch: a truncated patch should still yield buttons
     var m = text.match(/"options"\s*:\s*\[([^\]]*)\]/);
@@ -1198,7 +1233,9 @@ window.addEventListener('error', function (e) {
       spec.benchmark = mergeInto(spec.benchmark, next.benchmark);
     }
     if (next.dimensions && next.dimensions.length) spec.dimensions = next.dimensions;
-    if (next.items && next.items.length) spec.items = next.items;
+    if (Array.isArray(next.items) && next.items.length) {
+      spec.items = mergeItems(spec.items, next.items);
+    }
     viewStage = null;
     renderPanel();
     renderOptions(next.options);
@@ -1362,7 +1399,7 @@ window.addEventListener('error', function (e) {
       body: JSON.stringify({ messages: history, spec: spec })
     }).then(function (res) {
       if (!res.ok || !res.body) throw new Error('Request failed (' + res.status + ')');
-      var turn = null, failure = null;
+      var turn = null, failure = null, truncated = false;
       var reader = res.body.getReader(), decoder = new TextDecoder();
       var buffer = '', full = '';
 
@@ -1375,9 +1412,17 @@ window.addEventListener('error', function (e) {
             turn.caret.remove();
             var cut = full.indexOf(SENTINEL);
             var prose = cut >= 0 ? full.slice(0, cut).trim() : full.trim();
+            if (truncated && cut < 0) {
+              // Stopped before the spec block: the prose is a half sentence and there
+              // is no patch. Keep it out of history rather than poisoning later turns.
+              turn.el.remove();
+              showError('The model ran out of room mid-reply. Nothing was saved from that turn — try again.');
+              return null;
+            }
             turn.span.textContent = prose;
             if (cut >= 0) applySpec(full.slice(cut + SENTINEL.length));
             if (prose) history.push({ role: 'model', text: prose });
+            if (truncated) showError('The spec update was cut short, so the panel may be missing this turn.');
             return null;
           }
           buffer += decoder.decode(chunk.value, { stream: true });
@@ -1391,6 +1436,7 @@ window.addEventListener('error', function (e) {
               failure = { message: payload.error, retryAfter: +payload.retry_after || 0 };
               return;
             }
+            if (payload.truncated) { truncated = true; return; }
             if (payload.text) {
               if (!turn) { dots.remove(); turn = addModel(); dots = addThinking('thinking'); dots.classList.add('under'); }
               full += payload.text;

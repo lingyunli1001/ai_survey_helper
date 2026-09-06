@@ -17,6 +17,12 @@ app = FastAPI()
 STATIC = Path(__file__).parent / "static"
 API_KEY = os.environ.get("GEMINI_API_KEY", "")
 MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
+MAX_OUTPUT_TOKENS = int(os.environ.get("GEMINI_MAX_OUTPUT_TOKENS", "8000"))
+# Thinking shares maxOutputTokens with the visible reply. Left unset, flash-lite does
+# no thinking at all and scales it dynamically with difficulty; sending a budget turns
+# it ON. So -1 (omit) is the default, and the knob exists for models like gemini-3.6-*
+# where thinking is always on and needs capping so the spec block still fits.
+THINKING_BUDGET = int(os.environ.get("GEMINI_THINKING_BUDGET", "-1"))
 ENDPOINT = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
     "{model}:streamGenerateContent?alt=sse"
@@ -88,8 +94,9 @@ THEN, after your reply, on its own line, emit a spec PATCH:
 
 The interface already holds the current spec, shown at the end of these instructions.
 Send only what changed. Always include "stage" and "options"; omit every field you are
-not changing. Never re-send dimensions or items that are unchanged — a long patch gets
-truncated and then nothing updates at all.
+not changing. Never re-send items that are unchanged, and send "dimensions" only when the
+distribution actually changes — a long patch gets truncated and then nothing updates at
+all.
 
 Field reference — no markdown fences, nothing after the JSON:
   stage       integer 1-5, the stage you are working on right now
@@ -108,8 +115,17 @@ Field reference — no markdown fences, nothing after the JSON:
               {"name": short label, "definition": one sentence, "decision": what the
               result decides, "excludes": [2-4 adjacent things this will NOT measure]}
               Fill it in progressively — emit partial fields as you learn them.
-  items       array of {"text": string, "scale": "agree5"|"freq5"|"binary"} — empty
-              until stage 3
+  items       array of {"id": string, "text": string, "scale": "agree5"|"freq5"|"binary"}
+              — empty until stage 3.
+              CRITICAL — items are merged BY ID, never replaced as a list. Send only the
+              items you are adding or changing this turn.
+              Give every item a short stable id: q1, q2, q3 and so on.
+                - a NEW id appends a question
+                - reusing an EXISTING id rewrites that question in place
+                - {"id":"q2","remove":true} deletes it
+              The current items and their ids are in the spec below. Reuse an id only
+              when you mean to change that exact question, never to add a new one, and
+              never renumber items that already exist.
   benchmark   null until stage 4, then
               {"source": dataset and year, "item": the comparable published question,
               "note": one line on how comparable it really is}
@@ -210,11 +226,13 @@ async def chat(req: ChatRequest):
         ],
         "generationConfig": {
             "temperature": 0.8,
-            # generous: thinking tokens count against this, and a tight budget
-            # truncated the spec block mid-JSON
-            "maxOutputTokens": 3000,
+            "maxOutputTokens": MAX_OUTPUT_TOKENS,
         },
     }
+    if THINKING_BUDGET >= 0:
+        payload["generationConfig"]["thinkingConfig"] = {
+            "thinkingBudget": THINKING_BUDGET
+        }
 
     return StreamingResponse(
         _gemini_stream(payload),
@@ -287,6 +305,7 @@ async def _error_stream(message: str):
 
 async def _gemini_stream(payload: dict):
     url = ENDPOINT.format(model=MODEL)
+    finish = ""
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             async with client.stream(
@@ -307,26 +326,32 @@ async def _gemini_stream(payload: dict):
                     chunk = line[5:].strip()
                     if not chunk:
                         continue
-                    text = _extract_text(chunk)
+                    text, reason = _extract_part(chunk)
+                    if reason:
+                        finish = reason
                     if text:
                         yield _sse({"text": text})
     except httpx.HTTPError as exc:
         yield _sse({"error": f"Could not reach the model: {exc}"})
 
+    # A truncated reply is otherwise indistinguishable from a clean one: the stream
+    # just stops mid-sentence and the half turn poisons the rest of the conversation.
+    if finish and finish != "STOP":
+        yield _sse({"truncated": True, "reason": finish})
+
     yield _sse({"done": True})
 
 
-def _extract_text(raw: str) -> str:
+def _extract_part(raw: str) -> tuple[str, str]:
+    """Returns (text, finish_reason) for one SSE chunk; finish_reason is "" until the last."""
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
-        return ""
-    parts = (
-        data.get("candidates", [{}])[0]
-        .get("content", {})
-        .get("parts", [])
-    )
-    return "".join(p.get("text", "") for p in parts)
+        return "", ""
+    candidate = (data.get("candidates") or [{}])[0]
+    parts = candidate.get("content", {}).get("parts", [])
+    text = "".join(p.get("text", "") for p in parts)
+    return text, candidate.get("finishReason") or ""
 
 
 def _readable_error(status: int, body: str) -> tuple[str, int]:
