@@ -257,6 +257,11 @@
   }
   .runbtn:hover { opacity:.85; }
   .runbtn[disabled] { opacity:.35; cursor:default; }
+  .runbtn.ghost { background:transparent; color:var(--accent);
+                  border:1px solid var(--rule); padding:9px 15px; }
+  .runbtn.ghost:hover { border-color:var(--accent); opacity:1; }
+  .itempick button .mark { float:right; color:var(--accent); font-size:11px;
+                           letter-spacing:.06em; opacity:.8; margin-left:10px; }
   .nsel { font:inherit; font-size:13px; color:var(--text); background:var(--surface);
           border:1px solid var(--rule); border-radius:9px; padding:9px 10px; }
   .runnote { font-size:11.5px; color:var(--faint); }
@@ -575,6 +580,8 @@
             <div class="itempick" id="ritems"></div>
             <div class="runbar">
               <button class="runbtn" id="runbtn" type="button">Run</button>
+              <button class="runbtn ghost" id="runallbtn" type="button">Run all</button>
+              <button class="runbtn ghost" id="stopbtn" type="button" hidden>Stop</button>
               <select class="nsel" id="rn">
                 <option value="10">10 respondents</option>
                 <option value="20" selected>20 respondents</option>
@@ -956,6 +963,12 @@ window.addEventListener('error', function (e) {
     }
 
     renderRunItems();
+    // a reworded item drops its cache, so resync the visible results with it
+    if (!running) {
+      var rc = cached(runItem);
+      answers = rc ? rc.answers : [];
+      renderResults(rc ? rc.n : 0);
+    }
     $('rpop').textContent = spec.population || '—';
     $('rcon').textContent = c.name || '—';
     $('rit').textContent  = items.length ? items.length + ' items drafted' : '—';
@@ -1005,7 +1018,36 @@ window.addEventListener('error', function (e) {
   }
 
   // ---------- running the panel ----------
-  var runItem = 0, running = false, answers = [];
+  // results are cached per item and survive switching between questions; a run only
+  // overwrites the item it ran. Keyed by item id so a reorder cannot mix them up.
+  var runItem = 0, running = false, answers = [], results = {}, stopping = false;
+
+  function keyOf(i) {
+    var it = (spec.items || [])[i];
+    return (it && it.id) || ('#' + i);
+  }
+
+  // An item reworded in place keeps its id, so the cached answers are to a question
+  // that no longer exists. Drop them rather than show them under the new wording.
+  function pruneStale() {
+    var items = spec.items || [], live = {};
+    items.forEach(function (it, i) {
+      var k = keyOf(i);
+      live[k] = true;
+      if (results[k] && results[k].text !== it.text) delete results[k];
+    });
+    Object.keys(results).forEach(function (k) { if (!live[k]) delete results[k]; });
+  }
+
+  function cached(i) { return results[keyOf(i)]; }
+
+  function showItem(i) {
+    runItem = i;
+    var r = cached(i);
+    answers = r ? r.answers : [];
+    renderRunItems();
+    renderResults(r ? r.n : 0);
+  }
 
   function profileOf(p) {
     var bits = [];
@@ -1019,23 +1061,42 @@ window.addEventListener('error', function (e) {
 
   function renderRunItems() {
     var items = spec.items || [];
+    pruneStale();
     // items can now shrink, so a stale selection would index past the end
-    if (runItem >= items.length) { runItem = Math.max(0, items.length - 1); answers = []; }
+    if (runItem >= items.length) {
+      runItem = Math.max(0, items.length - 1);
+      var r0 = cached(runItem); answers = r0 ? r0.answers : [];
+    }
     var box = $('ritems'); box.innerHTML = '';
     items.forEach(function (it, i) {
       var b = document.createElement('button');
       b.type = 'button';
       b.className = i === runItem ? 'sel' : '';
       b.textContent = 'Q' + (i + 1) + '.  ' + it.text;
-      b.addEventListener('click', function () {
-        if (running) return;
-        runItem = i; answers = []; renderRunItems(); renderResults(0);
-      });
+      var r = cached(i);
+      if (r && r.done) {
+        var m = document.createElement('span');
+        m.className = 'mark'; m.textContent = 'run';
+        b.appendChild(m);
+      }
+      b.addEventListener('click', function () { if (!running) showItem(i); });
       box.appendChild(b);
     });
+
+    var n = parseInt($('rn').value, 10) || 20;
     $('runbtn').disabled = !items.length || running;
+    $('runallbtn').disabled = !items.length || running;
+    $('runallbtn').textContent = items.length > 1 ? 'Run all ' + items.length : 'Run all';
+    // the free tier allows 15 requests a minute and every respondent is one request,
+    // so say what a run actually costs in time before it is started
+    // one call per respondent now, whether that respondent answers one item or all of
+    // them, so the cost of a run no longer scales with the size of the pool
+    var mins = function (calls) {
+      var m = Math.ceil(calls / 15);
+      return m < 1 ? 'under a minute' : m + ' min';
+    };
     $('runnote').textContent = items.length
-      ? $('rn').value + ' API calls, one per respondent'
+      ? n + ' calls, ' + mins(n) + ' — one per respondent, either way'
       : 'Draft an item first';
   }
 
@@ -1103,57 +1164,117 @@ window.addEventListener('error', function (e) {
     }
   }
 
+  // Runs a set of items against a fresh panel. Each respondent answers the WHOLE
+  // questionnaire in one request — the thing a real respondent does — instead of being
+  // re-primed once per item. Personas are still never batched together: that is the
+  // independence the divergence measurement rests on.
+  function runSweep(indexes, label) {
+    return new Promise(function (resolve) {
+      var items = spec.items || [];
+      var chosen = indexes.filter(function (i) { return items[i]; });
+      if (!chosen.length) { resolve({ error: 'no items' }); return; }
+
+      var n = parseInt($('rn').value, 10) || 20;
+      var people = sample(n);
+      var payloadItems = chosen.map(function (i) {
+        return { id: keyOf(i), text: items[i].text, scale: items[i].scale || 'agree5' };
+      });
+
+      // publish every cache entry up front so partial results survive a stop or a 429
+      chosen.forEach(function (i) {
+        results[keyOf(i)] = { n: n, answers: [], text: items[i].text, done: false };
+      });
+      if (chosen.indexOf(runItem) < 0) runItem = chosen[0];
+      answers = results[keyOf(runItem)].answers;
+      renderRunItems(); renderResults(n);
+
+      var CHUNK = 5, at = 0;
+
+      function nextChunk() {
+        if (stopping) { resolve({ stopped: true }); return; }
+        if (at >= n) {
+          chosen.forEach(function (i) { results[keyOf(i)].done = true; });
+          resolve({ ok: true });
+          return;
+        }
+        var slice = [];
+        for (var i = at; i < Math.min(at + CHUNK, n); i++) {
+          slice.push({ id: i, profile: profileOf(people[i]) });
+        }
+        fetch('/api/respond', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items: payloadItems, personas: slice })
+        }).then(function (r) { return r.json(); }).then(function (data) {
+          if (data.error) throw new Error(data.error);
+          (data.answers || []).forEach(function (a) {
+            var who = profileOf(people[a.id]);
+            chosen.forEach(function (idx) {
+              var key = keyOf(idx);
+              var v = a.values ? a.values[key] : null;
+              results[key].answers[a.id] = {
+                value: v || null,
+                error: v ? null : (a.error || 'no answer for this item'),
+                profile: who
+              };
+            });
+          });
+          at += CHUNK;
+          $('rprog').style.width = Math.min(100, at / n * 100) + '%';
+          $('rproglab').textContent = (label || '') +
+            Math.min(at, n) + ' of ' + n + ' respondents answered';
+          renderRunItems(); renderResults(n);
+          nextChunk();
+        }).catch(function (err) {
+          resolve({ error: err.message });
+        });
+      }
+
+      nextChunk();
+    });
+  }
+
+  function startRun() {
+    running = true; stopping = false;
+    $('stopbtn').hidden = false;
+    $('runbtn').textContent = 'Running…';
+    renderRunItems();
+  }
+
+  function endRun(note) {
+    running = false; stopping = false;
+    $('stopbtn').hidden = true;
+    $('runbtn').textContent = 'Run again';
+    if (note) $('rproglab').textContent = note;
+    renderRunItems();
+  }
+
   function runPanel() {
+    if (running || !(spec.items || []).length) return;
+    startRun();
+    runSweep([runItem], '').then(function (res) {
+      endRun(res.error ? 'Stopped: ' + res.error : res.stopped ? 'Stopped.' : '');
+    });
+  }
+
+  function runAll() {
     var items = spec.items || [];
     if (running || !items.length) return;
-    var item = items[runItem];
-    var n = parseInt($('rn').value, 10) || 20;
-    var people = sample(n);
-
-    running = true; answers = [];
-    $('runbtn').disabled = true;
-    $('runbtn').textContent = 'Running…';
-    renderResults(n);
-
-    var CHUNK = 5, at = 0;
-
-    function nextChunk() {
-      if (at >= n) { finish(); return; }
-      var slice = [];
-      for (var i = at; i < Math.min(at + CHUNK, n); i++) {
-        slice.push({ id: i, profile: profileOf(people[i]) });
-      }
-      fetch('/api/respond', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: item.text, scale: item.scale || 'agree5', personas: slice })
-      }).then(function (r) { return r.json(); }).then(function (data) {
-        if (data.error) throw new Error(data.error);
-        (data.answers || []).forEach(function (a) {
-          answers[a.id] = { value: a.value, error: a.error, profile: profileOf(people[a.id]) };
-        });
-        at += CHUNK;
-        $('rprog').style.width = Math.min(100, at / n * 100) + '%';
-        $('rproglab').textContent = Math.min(at, n) + ' of ' + n + ' answered';
-        renderResults(n);
-        nextChunk();
-      }).catch(function (err) {
-        $('rproglab').textContent = 'Stopped: ' + err.message;
-        finish();
-      });
-    }
-
-    function finish() {
-      running = false;
-      $('runbtn').disabled = false;
-      $('runbtn').textContent = 'Run again';
-      renderRunItems();
-    }
-
-    nextChunk();
+    startRun();
+    var all = items.map(function (_, i) { return i; });
+    runSweep(all, 'All ' + items.length + ' items · ').then(function (res) {
+      endRun(res.error ? 'Stopped: ' + res.error
+           : res.stopped ? 'Stopped — partial results kept.'
+           : 'All ' + items.length + ' items run.');
+    });
   }
 
   $('runbtn').addEventListener('click', runPanel);
+  $('runallbtn').addEventListener('click', runAll);
+  $('stopbtn').addEventListener('click', function () {
+    stopping = true;
+    $('rproglab').textContent = 'Stopping after this batch…';
+  });
   $('rn').addEventListener('change', renderRunItems);
 
   ppeekback.addEventListener('click', function () {
@@ -1176,8 +1297,10 @@ window.addEventListener('error', function (e) {
 
   // Items merge by id so the model never retransmits wording it is not changing.
   // Re-emitting the whole list would let it quietly reword an approved question.
+  var unmatchedRemoves = [];
   function mergeItems(current, patch) {
     var out = (current || []).slice();
+    unmatchedRemoves = [];
     patch.forEach(function (it) {
       if (!it || typeof it !== 'object') return;
       var at = -1;
@@ -1186,7 +1309,12 @@ window.addEventListener('error', function (e) {
           if (out[i].id === it.id) { at = i; break; }
         }
       }
-      if (it.remove) { if (at >= 0) out.splice(at, 1); return; }
+      if (it.remove) {
+        if (at < 0) { unmatchedRemoves.push(it.id || '(no id)'); return; }
+        // drop every copy, in case an id was duplicated by an earlier bad patch
+        out = out.filter(function (x) { return x.id !== it.id; });
+        return;
+      }
       if (at >= 0) {
         out[at] = {
           id: out[at].id,
@@ -1211,7 +1339,8 @@ window.addEventListener('error', function (e) {
 
   function salvageOptions(text) {
     // last-ditch: a truncated patch should still yield buttons
-    var m = text.match(/"options"\s*:\s*\[([^\]]*)\]/);
+    // tolerate an array the truncation cut off before its closing bracket
+    var m = text.match(/"options"\s*:\s*\[([\s\S]*?)(?:\]|$)/);
     if (!m) return null;
     var out = [];
     var re = /"((?:[^"\\]|\\.)*)"/g, hit;
@@ -1219,18 +1348,39 @@ window.addEventListener('error', function (e) {
     return out.length ? out : null;
   }
 
-  function applySpec(raw) {
+  // Find the end of the JSON object by matching braces, not by taking the last "}" in
+  // the string — the model sometimes writes prose after the patch, and a brace in that
+  // prose used to swallow the whole thing and void the turn.
+  function jsonSpan(text, start) {
+    var depth = 0, inStr = false, esc = false;
+    for (var i = start; i < text.length; i++) {
+      var ch = text.charAt(i);
+      if (esc) { esc = false; continue; }
+      if (ch === '\\') { esc = true; continue; }
+      if (ch === '"') { inStr = !inStr; continue; }
+      if (inStr) continue;
+      if (ch === '{') depth++;
+      else if (ch === '}') { depth--; if (!depth) return i; }
+    }
+    return -1;
+  }
+
+  function applySpec(raw, onProse) {
     var text = String(raw).trim().replace(/^```(json)?/i, '').replace(/```$/, '').trim();
-    var start = text.indexOf('{'), end = text.lastIndexOf('}');
+    var start = text.indexOf('{');
+    var end = start >= 0 ? jsonSpan(text, start) : -1;
     var next = null;
     if (start >= 0 && end > start) {
       try { next = JSON.parse(text.slice(start, end + 1)); } catch (e) { next = null; }
+      // anything the model wrote after the patch is prose that belongs in the thread
+      var tail = text.slice(end + 1).trim();
+      if (tail && onProse) onProse(tail);
     }
     if (!next) {
       var rescued = salvageOptions(text);
       if (rescued) renderOptions(rescued);
-      if (window.console) console.warn('spec patch unparseable; kept previous state');
-      return;
+      if (window.console) console.warn('spec patch unparseable; kept previous state:', text);
+      return false;
     }
     // A patch carries only what changed, so nested objects must be merged field by
     // field. Replacing them wholesale blanks every field the patch happened to omit.
@@ -1250,10 +1400,18 @@ window.addEventListener('error', function (e) {
     if (next.dimensions && next.dimensions.length) spec.dimensions = next.dimensions;
     if (Array.isArray(next.items) && next.items.length) {
       spec.items = mergeItems(spec.items, next.items);
+      if (unmatchedRemoves.length) {
+        // the model asked to delete items that are not in the pool: say so rather than
+        // letting its prose claim a removal that never happened
+        showError('The model tried to remove ' + unmatchedRemoves.length +
+          ' item(s) that are not in the pool (' + unmatchedRemoves.join(', ') +
+          '), so nothing was deleted. Ask it again naming the questions.');
+      }
     }
     viewStage = null;
     renderPanel();
     renderOptions(next.options);
+    return true;
   }
 
   /* ---------------- hero ---------------- */
@@ -1417,27 +1575,73 @@ window.addEventListener('error', function (e) {
       var turn = null, failure = null, truncated = false;
       var reader = res.body.getReader(), decoder = new TextDecoder();
       var buffer = '', full = '';
+      // The thread is append-only: text that has been shown is never recomputed, so
+      // no later chunk can rewrite or blank a message the reader has already seen.
+      var shown = 0, sealed = false;
+
+      // Emit prose that is certain not to be part of the sentinel. The sentinel can
+      // straddle two chunks, so hold back its length - 1 characters until either it
+      // resolves into the sentinel or more text arrives behind it.
+      function emit(force) {
+        if (sealed) return;
+        var cut = full.indexOf(SENTINEL);
+        var upto = cut >= 0 ? cut
+                 : force ? full.length
+                 : Math.max(0, full.length - (SENTINEL.length - 1));
+        if (upto > shown) {
+          var piece = full.slice(shown, upto);
+          if (!shown) piece = piece.replace(/^\s+/, '');   // only ever trims the start
+          if (piece) {
+            if (!turn) { dots.remove(); turn = addModel(); dots = addThinking('thinking'); dots.classList.add('under'); }
+            turn.span.appendChild(document.createTextNode(piece));
+          }
+          shown = upto;
+        }
+        if (cut >= 0) { sealed = true; if (turn) turn.caret.remove(); }
+      }
 
       return (function pump() {
         return reader.read().then(function (chunk) {
           if (chunk.done) {
             dots.remove();
             if (failure) return failure;              // leave the error text alone
-            if (!turn) return null;
-            turn.caret.remove();
-            var cut = full.indexOf(SENTINEL);
-            var prose = cut >= 0 ? full.slice(0, cut).trim() : full.trim();
-            if (truncated && cut < 0) {
-              // Stopped before the spec block: the prose is a half sentence and there
-              // is no patch. Keep it out of history rather than poisoning later turns.
-              turn.el.remove();
-              showError('The model ran out of room mid-reply. Nothing was saved from that turn — try again.');
+            emit(true);                 // release the held-back tail
+            if (!full.trim()) {
+              showError('The model returned an empty reply. Ask again.');
               return null;
             }
-            turn.span.textContent = prose;
-            if (cut >= 0) applySpec(full.slice(cut + SENTINEL.length));
+            var cut = full.indexOf(SENTINEL);
+            // prose ends at the FIRST marker, but the patch is read from the LAST one:
+            // the server appends a good patch after a malformed one to supersede it
+            var lastCut = full.lastIndexOf(SENTINEL);
+            var prose = cut >= 0 ? full.slice(0, cut).trim() : full.trim();
+            var applied = false;
+            if (cut >= 0) {
+              applied = applySpec(full.slice(lastCut + SENTINEL.length), function (tail) {
+                // the model wrote its message after the patch instead of before it;
+                // append it, never swap out what is already on screen
+                if (!prose) {
+                  prose = tail;
+                  if (!turn) turn = addModel();
+                  turn.span.appendChild(document.createTextNode(tail));
+                }
+              });
+            }
+            if (turn) turn.caret.remove();
             if (prose) history.push({ role: 'model', text: prose });
-            if (truncated) showError('The spec update was cut short, so the panel may be missing this turn.');
+            else if (turn) turn.el.remove();   // nothing was ever shown in it
+
+            // Warn only when the panel really did not update. finishReason is not a
+            // reliable signal here: flash-lite returns MALFORMED_FUNCTION_CALL on
+            // ordinary, complete replies, and acting on it deleted good messages.
+            if (!applied) {
+              showError(truncated
+                ? 'That reply was cut off, so the panel did not update. Ask again.'
+                : 'That reply did not carry a panel update, so nothing changed. Ask again.');
+            } else if (!prose) {
+              // the patch landed but the model wrote no message with it
+              showError('The panel updated, but the model sent no message with it.');
+            }
             return null;
           }
           buffer += decoder.decode(chunk.value, { stream: true });
@@ -1453,11 +1657,8 @@ window.addEventListener('error', function (e) {
             }
             if (payload.truncated) { truncated = true; return; }
             if (payload.text) {
-              if (!turn) { dots.remove(); turn = addModel(); dots = addThinking('thinking'); dots.classList.add('under'); }
               full += payload.text;
-              var cut = full.indexOf(SENTINEL);
-              turn.span.textContent = cut >= 0 ? full.slice(0, cut).trim() : full;
-              if (cut >= 0) turn.caret.remove();
+              emit(false);
               // keep the dots below the growing text
               thread.appendChild(dots);
             }

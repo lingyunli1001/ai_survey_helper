@@ -1,7 +1,10 @@
 import asyncio
 import json
 import os
+import random
 import re
+import time
+from collections import deque
 from pathlib import Path
 
 import httpx
@@ -23,10 +26,32 @@ MAX_OUTPUT_TOKENS = int(os.environ.get("GEMINI_MAX_OUTPUT_TOKENS", "8000"))
 # it ON. So -1 (omit) is the default, and the knob exists for models like gemini-3.6-*
 # where thinking is always on and needs capping so the spec block still fits.
 THINKING_BUDGET = int(os.environ.get("GEMINI_THINKING_BUDGET", "-1"))
+# The free tier allows 15 generate_content requests per minute per model, and every
+# synthetic respondent is one request. Without pacing, a panel run burns the minute's
+# quota in about two seconds and the rest of the run comes back as errors.
+RPM = int(os.environ.get("GEMINI_RPM", "15"))
+_recent: deque = deque()
+_rate_lock = asyncio.Lock()
+
+
+async def _throttle():
+    """Block until sending one more request keeps us inside the per-minute quota."""
+    async with _rate_lock:
+        while True:
+            now = time.monotonic()
+            while _recent and now - _recent[0] >= 60.0:
+                _recent.popleft()
+            if len(_recent) < RPM:
+                _recent.append(now)
+                return
+            # holding the lock while sleeping is deliberate: it queues callers in order
+            # instead of releasing them all at once into the same exhausted window
+            await asyncio.sleep(60.0 - (now - _recent[0]) + 0.05)
 ENDPOINT = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
     "{model}:streamGenerateContent?alt=sse"
 )
+SENTINEL = "\u00a7SPEC\u00a7"
 
 SYSTEM_PROMPT = """\
 You are a survey methodologist. You walk someone through building a survey that will \
@@ -101,12 +126,27 @@ HOW YOU TALK
 - Never enumerate the options in your prose — they are rendered as buttons directly
   beneath your message. Ask the question in its general form and stop.
 
-ONE EXCEPTION, which overrides every rule above it: your first turn in stage 3. There
-you write the twenty-item pool outright, in that same turn's patch, choosing the facets
-yourself. Do not offer to draft it, do not ask whether to draft it now, do not ask which
-facets to use, and do not name the facets in your prose as a proposal to approve. The
-pool is already written by the time they read your message; your question that turn asks
-what to change about it.
+ONE EXCEPTION, and it is narrow: on your first turn in stage 3 you do not ask before
+drafting. You write the twenty-item pool outright, in that same turn's patch, choosing
+the facets yourself. Do not offer to draft it, do not ask whether to draft it now, and
+do not ask which facets to use.
+
+That exception changes WHEN you draft and nothing else. Every rule above still binds on
+that turn: two to four sentences, no lists, no bullets, no headers. The twenty items go
+in the patch and ONLY in the patch — writing them out in your message is the single
+worst thing you can do here, because the interface is already showing them in the panel
+beside you. Say how many items you wrote and what the facets are called, in a sentence.
+Nothing more.
+
+Your reply ALWAYS comes first. Never begin a turn with the marker below and never send
+a patch with nothing in front of it — a reply that starts with the marker shows the
+person a blank message. Write the sentences, then the patch, in that order, every time,
+including the turn where you draft the item pool.
+
+The patch is REQUIRED on every single turn, with no exceptions. A turn with no patch
+leaves the panel frozen and the person with no options to click, so it is a broken turn
+even when the sentences read well. If nothing else changed, still send "stage" and
+"options".
 
 THEN, after your reply, on its own line, emit a spec PATCH:
 
@@ -178,9 +218,14 @@ class Persona(BaseModel):
     profile: str          # "Age 34 · Female · Bachelor's or higher"
 
 
-class RespondRequest(BaseModel):
-    text: str             # the item being asked
+class Item(BaseModel):
+    id: str
+    text: str
     scale: str = "agree5"
+
+
+class RespondRequest(BaseModel):
+    items: list[Item]
     personas: list[Persona]
 
 
@@ -192,21 +237,23 @@ SCALE_POINTS = {
     "binary": ["Yes", "No"],
 }
 
-# Each respondent is answered in its own request. Batching personas into one call
-# would let them see each other's answers and converge, which destroys the whole
-# point of measuring how a conditioned model diverges from real respondents.
+# One request per RESPONDENT, who answers the whole questionnaire in it — the same
+# thing a real respondent does. Personas are never batched together: that would let
+# them see each other's answers and converge, destroying the divergence measurement
+# this tool exists to make. Item order is shuffled per respondent so that a persona
+# anchoring on its first answer shows up as noise rather than a systematic pull.
 RESPONDENT_PROMPT = """You are answering a survey as this person:
 {profile}
 
 Answer exactly as that person would — not as an average, not as a model. Let their
-circumstances shape the answer, including indifference or inconsistency where that is
-realistic.
+circumstances shape every answer, including indifference, ambivalence or inconsistency
+where that is realistic for them. Do not try to be consistent across questions for its
+own sake, and do not give the same rating to everything.
 
-Question: {text}
+{questions}
 
-{choices}
-
-Reply with ONLY the number of your choice. No words, no punctuation."""
+Answer every question. Reply with one line per question: the question number, a space,
+then the number of your choice. Nothing else — no words, no explanation."""
 
 
 @app.get("/")
@@ -267,67 +314,197 @@ async def chat(req: ChatRequest):
 async def respond(req: RespondRequest):
     if not API_KEY:
         return {"error": "No GEMINI_API_KEY configured on the server."}
+    if not req.items:
+        return {"error": "No items to ask."}
 
-    points = SCALE_POINTS.get(req.scale, SCALE_POINTS["agree5"])
-    choices = "\n".join(f"{i + 1} {p}" for i, p in enumerate(points))
-
-    # small cap keeps us inside the 10s function limit on the free plan
     gate = asyncio.Semaphore(5)
-
-    async with httpx.AsyncClient(timeout=25.0) as client:
+    async with httpx.AsyncClient(timeout=180.0) as client:
         results = await asyncio.gather(
-            *[
-                _ask_one(client, gate, person, req.text, choices, len(points))
-                for person in req.personas
-            ]
+            *[_ask_one(client, gate, person, req.items) for person in req.personas]
         )
     return {"answers": results}
 
 
-async def _ask_one(client, gate, person, text, choices, n_points):
+def _render_questions(items: list[Item], order: list[int]) -> str:
+    """The questionnaire as the respondent sees it, in their own shuffled order."""
+    blocks = []
+    for shown, idx in enumerate(order, start=1):
+        item = items[idx]
+        points = SCALE_POINTS.get(item.scale, SCALE_POINTS["agree5"])
+        choices = "   ".join(f"{i + 1} {p}" for i, p in enumerate(points))
+        blocks.append(f"{shown}. {item.text}\n   {choices}")
+    return "\n\n".join(blocks)
+
+
+def _parse_answers(raw: str, items: list[Item], order: list[int]) -> dict:
+    """Map "<question number> <choice>" lines back onto the unshuffled items."""
+    out = {}
+    for line in raw.splitlines():
+        m = re.match(r"\s*(\d+)\s*[).:\-]?\s+(\d+)", line)
+        if not m:
+            continue
+        shown, value = int(m.group(1)), int(m.group(2))
+        if not 1 <= shown <= len(order):
+            continue
+        item = items[order[shown - 1]]
+        points = SCALE_POINTS.get(item.scale, SCALE_POINTS["agree5"])
+        if 1 <= value <= len(points):
+            out[item.id] = value
+    return out
+
+
+async def _ask_one(client, gate, person, items: list[Item]):
+    order = list(range(len(items)))
+    random.shuffle(order)
     prompt = RESPONDENT_PROMPT.format(
-        profile=person.profile, text=text, choices=choices
+        profile=person.profile, questions=_render_questions(items, order)
     )
     payload = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 1.0, "maxOutputTokens": 300},
+        "generationConfig": {
+            "temperature": 1.0,
+            # one short line per item, plus room for a model that pads
+            "maxOutputTokens": max(300, 60 * len(items) + 200),
+        },
     }
+
     async with gate:
-        try:
-            r = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent",
-                json=payload,
-                headers={"x-goog-api-key": API_KEY},
-            )
-        except httpx.HTTPError as exc:
-            return {"id": person.id, "value": None, "error": str(exc)[:80]}
+        for attempt in range(3):
+            await _throttle()
+            try:
+                r = await client.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent",
+                    json=payload,
+                    headers={"x-goog-api-key": API_KEY},
+                )
+            except httpx.HTTPError as exc:
+                return {"id": person.id, "values": {}, "error": str(exc)[:80]}
+            if r.status_code != 429:
+                break
+            message, retry_after = _readable_error(429, r.text)
+            if not retry_after or attempt == 2:
+                return {"id": person.id, "values": {}, "error": message}
+            await asyncio.sleep(min(retry_after, 30))
 
     if r.status_code != 200:
         message, _ = _readable_error(r.status_code, r.text)
-        return {"id": person.id, "value": None, "error": message}
+        return {"id": person.id, "values": {}, "error": message}
 
     try:
         parts = r.json()["candidates"][0]["content"]["parts"]
         raw = "".join(p.get("text", "") for p in parts)
     except (KeyError, IndexError, json.JSONDecodeError):
-        return {"id": person.id, "value": None, "error": "no answer returned"}
+        return {"id": person.id, "values": {}, "error": "no answer returned"}
 
-    match = re.search(r"[1-9]", raw)
-    if not match:
-        return {"id": person.id, "value": None, "error": "unparseable: " + raw[:24]}
-    value = int(match.group())
-    if not 1 <= value <= n_points:
-        return {"id": person.id, "value": None, "error": f"out of range: {value}"}
-    return {"id": person.id, "value": value, "error": None}
+    values = _parse_answers(raw, items, order)
+    if not values:
+        return {"id": person.id, "values": {}, "error": "unparseable: " + raw[:24]}
+    # items the respondent skipped are reported, not silently blank
+    missing = [it.id for it in items if it.id not in values]
+    return {
+        "id": person.id,
+        "values": values,
+        "error": None,
+        "missing": missing or None,
+    }
 
 
 async def _error_stream(message: str):
     yield _sse({"error": message})
 
 
+def _patch_json(seen: str):
+    """The patch object from a reply, or None if it is absent or not valid JSON.
+
+    Brace-matched rather than taking the last "}" in the string, because the model
+    sometimes writes prose after the patch.
+    """
+    at = seen.find(SENTINEL)
+    if at < 0:
+        return None
+    text = re.sub(r"^```(json)?", "", seen[at + len(SENTINEL):].strip(), flags=re.I).strip()
+    start = text.find("{")
+    if start < 0:
+        return None
+    depth, in_str, esc = 0, False, False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if esc:
+            esc = False
+            continue
+        if ch == "\\":
+            esc = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                try:
+                    return json.loads(text[start:i + 1])
+                except json.JSONDecodeError:
+                    return None
+    return None
+
+
+async def _recover_patch(payload: dict, reply: str) -> str:
+    """Ask for the patch a reply came back without.
+
+    flash-lite drops the block every so often. Prompting has not made that reliable, so
+    recover it instead: without a patch the panel freezes and the person is left with no
+    options to click, which reads as the app having ignored them.
+    """
+    followup = {
+        "systemInstruction": payload.get("systemInstruction"),
+        "contents": list(payload.get("contents", []))
+        + [
+            {"role": "model", "parts": [{"text": reply}]},
+            {
+                "role": "user",
+                "parts": [
+                    {
+                        "text": "That reply was missing its spec patch. Send only the "
+                        "patch for it now — the marker, then the JSON object, and "
+                        "nothing else. No prose before or after. It must include "
+                        '"stage" and "options".'
+                    }
+                ],
+            },
+        ],
+        # low temperature: this is a formatting repair, not a fresh answer
+        "generationConfig": {"temperature": 0.2, "maxOutputTokens": MAX_OUTPUT_TOKENS},
+    }
+    await _throttle()
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            r = await client.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent",
+                json=followup,
+                headers={"x-goog-api-key": API_KEY},
+            )
+    except httpx.HTTPError:
+        return ""
+    if r.status_code != 200:
+        return ""
+    try:
+        parts = r.json()["candidates"][0]["content"]["parts"]
+        text = "".join(p.get("text", "") for p in parts)
+    except (KeyError, IndexError, json.JSONDecodeError):
+        return ""
+    at = text.find(SENTINEL)
+    return text[at:] if at >= 0 else ""
+
+
 async def _gemini_stream(payload: dict):
     url = ENDPOINT.format(model=MODEL)
     finish = ""
+    seen = ""
+    await _throttle()
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             async with client.stream(
@@ -352,9 +529,34 @@ async def _gemini_stream(payload: dict):
                     if reason:
                         finish = reason
                     if text:
+                        seen += text
                         yield _sse({"text": text})
     except httpx.HTTPError as exc:
         yield _sse({"error": f"Could not reach the model: {exc}"})
+
+    # A turn whose patch is missing OR unparseable freezes the panel, so ask for it
+    # again rather than letting the turn land broken. The client reads the LAST patch
+    # in the stream, so appending a good one supersedes a malformed one.
+    recovered = ""
+    if seen.strip() and API_KEY and finish != "MAX_TOKENS" and _patch_json(seen) is None:
+        recovered = "missing" if SENTINEL not in seen else "malformed"
+        patch = await _recover_patch(payload, seen)
+        if patch:
+            seen += patch
+            yield _sse({"text": patch})
+        else:
+            recovered += "-failed"
+
+    # One line per turn, so a reply that renders wrong in the browser can be traced to
+    # what the model actually sent: where the sentinel landed and how it finished.
+    cut = seen.find(SENTINEL)
+    print(
+        f"[turn] finish={finish or '-'} chars={len(seen)} "
+        f"sentinel={'no' if cut < 0 else cut} "
+        f"prose={len(seen[:cut].strip()) if cut >= 0 else len(seen.strip())}"
+        f"{' recovered=' + recovered if recovered else ''}",
+        flush=True,
+    )
 
     # A truncated reply is otherwise indistinguishable from a clean one: the stream
     # just stops mid-sentence and the half turn poisons the rest of the conversation.
