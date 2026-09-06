@@ -261,7 +261,8 @@
           border:1px solid var(--rule); border-radius:9px; padding:9px 10px; }
   .runnote { font-size:11.5px; color:var(--faint); }
 
-  .itempick { margin-top:14px; display:flex; flex-direction:column; gap:6px; }
+  .itempick { margin-top:14px; display:flex; flex-direction:column; gap:6px;
+              max-height:340px; overflow-y:auto; }
   .itempick button {
     font:inherit; font-size:13.5px; text-align:left; line-height:1.4;
     color:var(--muted); background:var(--surface); border:1px solid var(--rule-soft);
@@ -307,6 +308,11 @@
                background:var(--surface); padding:20px 22px; }
   .q { padding:16px 0; border-top:1px solid var(--rule-soft); }
   .q:first-child { border-top:0; padding-top:0; }
+  .facet { font-size:10.5px; letter-spacing:.1em; text-transform:uppercase;
+           color:var(--accent); margin:22px 0 -4px; padding-top:16px;
+           border-top:1px solid var(--rule-soft); }
+  .facet:first-child { margin-top:0; padding-top:0; border-top:0; }
+  .facet + .q { border-top:0; }
   .q .qt { font-family:Newsreader, serif; font-size:17px; font-weight:300;
            line-height:1.45; margin-bottom:11px; }
   .q .qn { font-size:10.5px; color:var(--faint); letter-spacing:.08em; margin-bottom:5px; }
@@ -918,7 +924,14 @@ window.addEventListener('error', function (e) {
     pform.innerHTML = '';
     pform.style.display = items.length ? 'block' : 'none';
     pformEmpty.style.display = items.length ? 'none' : 'block';
+    var seenFacet = null;
     items.forEach(function (it, i) {
+      if (it.facet && it.facet !== seenFacet) {
+        seenFacet = it.facet;
+        var h = document.createElement('div');
+        h.className = 'facet'; h.textContent = it.facet;
+        pform.appendChild(h);
+      }
       var q = document.createElement('div'); q.className = 'q';
       var n = document.createElement('div'); n.className = 'qn'; n.textContent = 'Q' + (i + 1);
       var t = document.createElement('div'); t.className = 'qt'; t.textContent = it.text || '';
@@ -1178,7 +1191,8 @@ window.addEventListener('error', function (e) {
         out[at] = {
           id: out[at].id,
           text: it.text || out[at].text,
-          scale: it.scale || out[at].scale
+          scale: it.scale || out[at].scale,
+          facet: it.facet || out[at].facet
         };
         return;
       }
@@ -1188,7 +1202,8 @@ window.addEventListener('error', function (e) {
       out.push({
         id: it.id || 'q' + (out.length + 1),
         text: it.text,
-        scale: it.scale || 'agree5'
+        scale: it.scale || 'agree5',
+        facet: it.facet || ''
       });
     });
     return out;
