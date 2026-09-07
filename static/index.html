@@ -1584,7 +1584,10 @@ window.addEventListener('error', function (e) {
       function nextChunk() {
         if (stopping) { resolve({ stopped: true }); return; }
         if (at >= n) {
-          chosen.forEach(function (i) { results[keyOf(i)].done = true; });
+          chosen.forEach(function (i) {
+            var slot = results[keyOf(i)];
+            if (slot) slot.done = true;   // may have been pruned mid-run
+          });
           resolve({ ok: true });
           return;
         }
@@ -1602,8 +1605,13 @@ window.addEventListener('error', function (e) {
             var who = profileOf(people[a.id]);
             chosen.forEach(function (idx) {
               var key = keyOf(idx);
+              // The entry can be gone if the pool changed mid-run. Skip that item
+              // rather than throwing, which would abort the whole sweep and lose
+              // the respondents already collected.
+              var slot = results[key];
+              if (!slot) return;
               var v = a.values ? a.values[key] : null;
-              results[key].answers[a.id] = {
+              slot.answers[a.id] = {
                 value: v || null,
                 error: v ? null : (a.error || 'no answer for this item'),
                 profile: who
@@ -1686,6 +1694,13 @@ window.addEventListener('error', function (e) {
     return out;
   }
 
+  // Lowest "qN" not already used in the pool.
+  function freeId(taken) {
+    var n = 1;
+    while (taken['q' + n]) n++;
+    return 'q' + n;
+  }
+
   // Items merge by id so the model never retransmits wording it is not changing.
   // Re-emitting the whole list would let it quietly reword an approved question.
   var unmatchedRemoves = [];
@@ -1718,8 +1733,14 @@ window.addEventListener('error', function (e) {
       // Unknown id, or none at all: append. Preferring append over replace means a
       // forgotten id surfaces as a visible duplicate instead of silent data loss.
       if (!it.text) return;
+      // The generated id must not collide with one already in the pool. "q" +
+      // (length + 1) does collide as soon as anything has been removed — pool
+      // [q1,q3] would mint another q3 — and two items sharing an id share one
+      // result-cache slot, which makes a sweep drop items and then abort.
+      var taken = {};
+      out.forEach(function (x) { taken[x.id] = 1; });
       out.push({
-        id: it.id || 'q' + (out.length + 1),
+        id: it.id || freeId(taken),
         text: it.text,
         scale: it.scale || 'agree5',
         facet: it.facet || ''
