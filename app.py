@@ -71,11 +71,20 @@ import in one clause, then start at STAGE 1. Your job is the respondent, the
 construct, and the benchmark around the items they gave you; you may still suggest
 wording fixes when asked.
 
-STAGE 1 — RESPONDENT. Who takes this survey?
+STAGE 1 — RESPONDENT AND DESIGN. Who takes this, and what is compared with what?
   Every synthetic respondent gets conditioned on the profile defined here.
   Get the population, then the demographic dimensions that plausibly MOVE the answer.
   Say in a few words why each dimension would matter. Skip boilerplate demographics
   that would not moderate this particular outcome.
+  Then settle the DESIGN, because it decides how big the sample has to be:
+    - is this descriptive (one group, just describing it), a comparison between
+      groups that already exist (commuters vs residents), or an experiment where
+      you assign people to conditions?
+    - if groups or conditions are being compared, name them — those are the "arms"
+    - what is the one outcome the comparison is about (the dependent variable)?
+    - anything that has to be held constant or measured as a control?
+  The interface shows the person what their sample size can and cannot detect as
+  soon as this is set, so get the arms named even if roughly.
 
 STAGE 2 — CONSTRUCT. What is actually being measured?
   Push past the topic to the specific latent thing, and to the decision it informs.
@@ -187,6 +196,21 @@ Field reference — no markdown fences, nothing after the JSON:
               gender:[{"label":"Female","pct":100}] and age:[{"label":"20-29","pct":100}].
               Never drop a dimension because it stopped varying, and never leave a
               broad distribution in place after the person has narrowed it.
+  design      null until you know it, then
+              {"type": "descriptive"|"between-groups"|"experiment"|"correlational",
+               "arms": [{"name": short label, "description": one clause}],
+               "dv": the one outcome the comparison is about,
+               "controls": [things held constant or measured as controls]}
+              "arms" is the groups or conditions being compared — ["Commuters",
+              "On-campus residents"], or ["Control", "Reminder email"]. Leave it
+              empty for a purely descriptive survey. The interface computes the
+              sample size the design needs from the number of arms, so emit them as
+              soon as they are named, even roughly.
+              NEVER also emit the arms as a demographic dimension. "Commuters vs
+              residents" is either arms or a dimension, not both — listing it twice
+              double-counts the cells and overstates the sample size needed. Arms are
+              what the study compares; dimensions are what the panel varies within
+              each arm.
   construct   null until stage 2, then
               {"name": short label, "definition": one sentence, "decision": what the
               result decides, "excludes": [2-4 adjacent things this will NOT measure]}
@@ -296,6 +320,38 @@ SCALE_POINTS = {
 # like the named scales. Both carry their own labels on the item.
 CUSTOM_SCALES = ("choice", "ordinal")
 NOMINAL_SCALES = ("choice",)
+
+
+def _setting_standard(setting: str) -> str:
+    """How hard to push, given what the survey is for.
+
+    A course assignment and a dissertation want very different things from the
+    same five stages, and treating them alike is either pedantic or negligent.
+    """
+    s = setting.lower()
+    if "thesis" in s or "dissertation" in s:
+        return (
+            "\nThis is thesis work, so hold it to a defensible standard. The construct "
+            "needs a definition someone could argue with, the benchmark needs a named "
+            "source and year, and the sample has to support the comparisons they say "
+            "they want to make. Say so plainly when it does not.\n"
+        )
+    if "course" in s or "assignment" in s or "class" in s:
+        return (
+            "\nThis is coursework. Keep it moving: a workable construct beats a perfect "
+            "one, a benchmark is welcome but optional, and a small sample is fine. Spend "
+            "the effort on the items themselves — that is what gets marked.\n"
+        )
+    if "internship" in s or "work" in s:
+        return (
+            "\nThis is applied work, so keep it practical. Tie the construct to the "
+            "decision someone will make with the result, and prefer items that produce "
+            "a number a stakeholder can act on.\n"
+        )
+    return (
+        "\nSetting is unusual or self-described — read it literally and match its "
+        "level of rigour rather than assuming coursework.\n"
+    )
 
 
 def points_for(item) -> list[str]:
@@ -417,7 +473,20 @@ async def chat(req: ChatRequest):
         )
 
     state = json.dumps(req.spec, separators=(",", ":")) if req.spec else "{}"
-    instruction = SYSTEM_PROMPT + (
+    brief = (req.spec or {}).get("brief") or {}
+    instruction = SYSTEM_PROMPT
+    if brief.get("question"):
+        # the brief is the ground everything else is judged against, so it goes in
+        # ahead of the spec rather than buried inside it
+        instruction += (
+            "\n\nTHE BRIEF — the person gave you this before the interview started. "
+            "Every stage serves it.\n"
+            f"  Research question: {brief.get('question')}\n"
+            f"  Setting: {brief.get('setting') or 'not stated'}\n"
+            f"  Who they want to ask: {brief.get('population') or 'not yet decided'}\n"
+            + _setting_standard(brief.get("setting") or "")
+        )
+    instruction += (
         "\n\nCURRENT SPEC (the interface already holds this; do not repeat it back):\n"
         + state
     )

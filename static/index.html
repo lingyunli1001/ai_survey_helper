@@ -97,6 +97,74 @@
     .chip.float { animation:drift var(--d,7s) ease-in-out infinite; }
   }
 
+  /* ---------- sample & power ---------- */
+  .samp-cells { font-size:12.5px; line-height:1.55; color:var(--muted); }
+  .samp-cells b { color:var(--text); font-weight:500; font-variant-numeric:tabular-nums; }
+  .samp-tab { margin-top:13px; border:1px solid var(--rule-soft); border-radius:8px;
+              overflow:hidden; }
+  .samp-row { display:grid; grid-template-columns:1fr auto auto; gap:12px;
+              padding:7px 12px; font-size:11.5px; align-items:baseline; }
+  .samp-row + .samp-row { border-top:1px solid var(--rule-soft); }
+  .samp-row.head { color:var(--faint); font-size:9.5px; letter-spacing:.09em;
+                   text-transform:uppercase; background:var(--rule-soft); }
+  .samp-row .ef { color:var(--muted); }
+  .samp-row .np, .samp-row .tot { font-variant-numeric:tabular-nums; text-align:right; }
+  .samp-row.reach .tot { color:var(--live); }
+  .samp-row.short .tot { color:var(--warn); }
+  .samp-mde { margin-top:13px; font-size:12.5px; line-height:1.6; color:var(--muted);
+              border-left:2px solid var(--focus); padding-left:12px; }
+  .samp-mde b { color:var(--text); font-weight:500; }
+  .samp-mde.tight { border-left-color:var(--warn); }
+  .samp-mde.ok { border-left-color:var(--live); }
+
+  /* ---------- the brief ---------- */
+  .stage.briefing .prompt, .stage.briefing .field,
+  .stage.briefing .suggestions, .stage.briefing .import { display:none; }
+  .brief { max-width:560px; animation:rise .4s ease both; }
+  .brief-h { font-family:Newsreader, ui-serif, Georgia, serif; font-weight:300;
+             font-size:clamp(22px,3.4vw,30px); line-height:1.2; letter-spacing:-0.015em;
+             margin:0 0 26px; }
+  .brief-f { margin-bottom:22px; }
+  .brief-f label { display:block; font-size:12.5px; color:var(--muted); margin-bottom:8px; }
+  .brief-f .opt-note { color:var(--faint); }
+  .brief-f textarea, .brief-f input[type="text"] {
+    width:100%; font:inherit; font-size:14.5px; line-height:1.5; color:var(--text);
+    background:var(--surface); border:1px solid var(--rule); border-radius:10px;
+    padding:10px 13px; outline:none; resize:vertical; transition:border-color .2s;
+  }
+  .brief-f textarea:focus, .brief-f input[type="text"]:focus { border-color:var(--focus); }
+  .brief-f textarea::placeholder, .brief-f input::placeholder { color:var(--faint); }
+  .brief-opts { display:flex; flex-wrap:wrap; gap:7px; }
+  .brief-opts button {
+    font:inherit; font-size:13px; color:var(--text); background:var(--surface);
+    border:1px solid var(--rule); border-radius:9px; padding:8px 13px; cursor:pointer;
+    transition:border-color .16s, background .16s;
+  }
+  .brief-opts button:hover { border-color:var(--focus); }
+  .brief-opts button.sel { color:var(--bg); background:var(--accent); border-color:var(--accent); }
+  .brief-opts button.free { color:var(--muted); border-style:dashed; }
+  .brief-opts button.free.sel { color:var(--bg); border-style:solid; }
+  .brief-other { margin-top:9px; }
+  .brief-go { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-top:28px; }
+  .brief-start { font:inherit; font-size:14px; color:var(--bg); background:var(--accent);
+                 border:0; border-radius:10px; padding:11px 22px; cursor:pointer;
+                 transition:opacity .18s; }
+  .brief-start:hover { opacity:.85; }
+  .brief-start[disabled] { opacity:.4; cursor:default; }
+  .brief-back { font:inherit; font-size:12.5px; color:var(--faint); background:none;
+                border:0; cursor:pointer; }
+  .brief-back:hover { color:var(--text); }
+  .brief-err { font-size:12.5px; color:var(--warn); }
+
+  /* the brief, echoed in the panel */
+  .briefcard { margin-top:16px; border:1px solid var(--rule-soft); border-radius:9px;
+               background:var(--surface); padding:12px 14px; }
+  .briefcard .bk { font-size:9.5px; letter-spacing:.11em; text-transform:uppercase;
+                   color:var(--faint); }
+  .briefcard .bv { margin-top:4px; font-size:12.5px; line-height:1.5; color:var(--text); }
+  .briefcard .brow + .brow { margin-top:10px; padding-top:10px;
+                             border-top:1px solid var(--rule-soft); }
+
   /* ---------- workspace ---------- */
   .workspace { display:none; width:100%; max-width:1420px; gap:46px; }
   body.talking .workspace { display:grid; grid-template-columns:minmax(290px,370px) minmax(0,1fr); }
@@ -525,8 +593,8 @@
 <div class="shell">
 
   <header>
-    <div class="wordmark"><i class="mark"></i><b>Synthetic Panel</b> <span>— survey pretesting</span></div>
-    <div class="masthead-note">Benchmarked against human survey data</div>
+    <div class="wordmark"><i class="mark"></i><b>Synthetic Panel</b> <span>— pretest before you field it</span></div>
+    <div class="masthead-note">For coursework and thesis research</div>
     <button class="restart" id="restart" type="button">Start over</button>
   </header>
 
@@ -560,6 +628,36 @@
           <div class="import-msg" id="importMsg" hidden></div>
         </div>
       </div>
+
+      <!-- the brief: replaces the hero fields once a topic is in -->
+      <div class="brief" id="brief" hidden>
+        <h2 class="brief-h">Before we start — three things</h2>
+
+        <div class="brief-f">
+          <label for="bq">What question should this survey answer?</label>
+          <textarea id="bq" rows="2"
+            placeholder="Rough is fine — we sharpen it later."></textarea>
+        </div>
+
+        <div class="brief-f">
+          <label>What is this for?</label>
+          <div class="brief-opts" id="bsetopts"></div>
+          <div class="brief-other" id="bsetother" hidden>
+            <input id="bsetfree" type="text" placeholder="Describe it…">
+          </div>
+        </div>
+
+        <div class="brief-f">
+          <label for="bpop">Who do you want to ask? <span class="opt-note">optional</span></label>
+          <input id="bpop" type="text" placeholder="e.g. undergraduates at my university">
+        </div>
+
+        <div class="brief-go">
+          <button class="brief-start" id="briefgo" type="button">Start</button>
+          <button class="brief-back" id="briefback" type="button">Back</button>
+          <span class="brief-err" id="brieferr" hidden></span>
+        </div>
+      </div>
     </div>
 
     <!-- workspace -->
@@ -583,6 +681,7 @@
           <span class="panel-count"><span id="pcount">—</span><small>respondents</small></span>
         </div>
         <div class="panel-pop" id="ppop">Not yet specified.</div>
+        <div class="briefcard" id="pbrief" hidden></div>
         <div class="steps" id="psteps"></div>
         <div class="readiness"><i id="pready"></i></div>
 
@@ -604,6 +703,12 @@
           <div class="section">
             <h3>Composition</h3>
             <div class="dims" id="pdims"><div class="empty">No dimensions set.</div></div>
+          </div>
+          <div class="section" id="psample">
+            <h3>Sample &amp; power</h3>
+            <div class="samp-cells" id="scells"></div>
+            <div class="samp-tab" id="stab"></div>
+            <div class="samp-mde" id="smde"></div>
           </div>
         </div>
 
@@ -695,7 +800,7 @@
 
   <footer>
     <div class="footer-inner">
-      <p>Generates responses from demographically conditioned language models, then measures how far they drift from real respondents.</p>
+      <p>Catch the broken questions and the underpowered comparisons before you spend your real sample. Answers come from language models conditioned on demographic profiles — a dry run, not a substitute for respondents.</p>
       <span>Research preview</span>
     </div>
   </footer>
@@ -896,6 +1001,8 @@ window.addEventListener('error', function (e) {
 
   function renderPanel() {
     if (!spec) return;
+    renderBriefCard();
+    renderSample();
     var n = Math.max(1, Math.min(200, +spec.n || 60));
     pcount.textContent = n;
     ppop.textContent = spec.population || 'Not yet specified.';
@@ -1014,6 +1121,147 @@ window.addEventListener('error', function (e) {
     }
 
     renderStageViews();
+  }
+
+  /* ---------------- sample size & power ---------------- */
+  // Two independent groups, alpha .05 two-tailed, 80% power:
+  //   n per group = 2 (z.975 + z.80)^2 / d^2
+  // (1.959964 + 0.841621)^2 * 2 = 15.6978. Inverting it gives the smallest effect a
+  // given cell size can detect, which is the honest thing to tell someone: we cannot
+  // know the real effect, but we can say what their n would be able to see.
+  var POWER_K = 15.6978;
+  function nPerGroup(d) { return Math.ceil(POWER_K / (d * d)); }
+  function detectableD(perCell) { return Math.sqrt(POWER_K / Math.max(1, perCell)); }
+
+  // model-supplied strings go through textContent; numbers get emphasis
+  function frag(parts) {
+    var f = document.createDocumentFragment();
+    parts.forEach(function (p) {
+      if (p && typeof p === 'object' && 'b' in p) {
+        var b = document.createElement('b'); b.textContent = p.b; f.appendChild(b);
+      } else f.appendChild(document.createTextNode(String(p)));
+    });
+    return f;
+  }
+
+  // The standard deviation of the item currently in the run view, when it has been
+  // run and is ordered — lets the minimum detectable effect be quoted in scale points.
+  function observedSd() {
+    var it = (spec.items || [])[runItem];
+    if (!it || isNominal(it)) return null;
+    var rc = results[keyOf(runItem)];
+    if (!rc || !rc.answers) return null;
+    var vs = rc.answers.filter(function (a) { return a && a.value; })
+                       .map(function (a) { return a.value; });
+    if (vs.length < 5) return null;
+    var m = vs.reduce(function (a, v) { return a + v; }, 0) / vs.length;
+    var sd = Math.sqrt(vs.reduce(function (a, v) { return a + (v - m) * (v - m); }, 0) / vs.length);
+    return sd > 0 ? sd : null;
+  }
+
+  // The model often emits the comparison twice — once as arms, once as a demographic
+  // dimension ("Commuters vs residents" AND a "Housing type" dimension). Telling it
+  // not to has not proved reliable, and counting both squares the cells and doubles
+  // the sample size we demand. Detect the restatement and drop it instead.
+  function armsRestatedAs(dims, arms) {
+    if (arms.length < 2) return null;
+    var names = arms.map(function (a) { return String(a.name || '').toLowerCase(); });
+    for (var i = 0; i < dims.length; i++) {
+      var labels = (dims[i].levels || []).map(function (l) {
+        return String(l.label || '').toLowerCase();
+      });
+      if (labels.length !== names.length) continue;
+      var hits = labels.filter(function (l) {
+        return l && names.some(function (nm) {
+          return nm && (nm.indexOf(l) >= 0 || l.indexOf(nm) >= 0);
+        });
+      }).length;
+      if (hits >= Math.ceil(labels.length * 0.6)) return dims[i];
+    }
+    return null;
+  }
+
+  function renderSample() {
+    var n = Math.max(1, Math.min(200, +spec.n || 60));
+    var arms = ((spec.design || {}).arms || []).filter(function (a) { return a && a.name; });
+    var dims = (spec.dimensions || []).filter(function (d) { return (d.levels || []).length > 1; });
+    var dup = armsRestatedAs(dims, arms);
+    if (dup) dims = dims.filter(function (d) { return d !== dup; });
+    var crossed = dims.reduce(function (a, d) { return a * d.levels.length; }, 1);
+
+    var cells = $('scells'); cells.innerHTML = '';
+    var tab = $('stab'); tab.innerHTML = '';
+    var mde = $('smde'); mde.innerHTML = ''; mde.className = 'samp-mde';
+
+    // ---- what is being compared ----
+    var line = document.createElement('div');
+    if (arms.length >= 2) {
+      line.appendChild(frag(['Comparing ', { b: arms.length }, ' groups — ',
+        arms.map(function (a) { return a.name; }).join(', '), '. At n=', { b: n },
+        ' that is about ', { b: Math.floor(n / arms.length) }, ' per group.']));
+    } else {
+      line.appendChild(frag(['No comparison groups named yet, so this is sized as a ',
+        'single group of ', { b: n }, '.']));
+    }
+    cells.appendChild(line);
+
+    if (dims.length) {
+      var line2 = document.createElement('div');
+      line2.style.marginTop = '6px';
+      line2.appendChild(frag(['Breaking that out by ',
+        dims.map(function (d) { return humanize(d.name); }).join(' × '), ' makes ',
+        { b: Math.max(arms.length, 1) * crossed }, ' cells — roughly ',
+        { b: Math.floor(n / (Math.max(arms.length, 1) * crossed)) }, ' people each.']));
+      cells.appendChild(line2);
+    }
+
+    // ---- descriptive designs have no comparison to power ----
+    if (arms.length < 2 && !dims.length) {
+      var moe = Math.round(0.98 / Math.sqrt(n) * 100);
+      mde.className = 'samp-mde';
+      mde.appendChild(frag(['Descriptive design, so there is no group comparison to ',
+        'power. At n=', { b: n }, ' a percentage from this survey carries a margin of ',
+        'error of roughly ', { b: '±' + moe + '%' }, '. Name the groups you want to ',
+        'compare and this turns into a sample-size requirement.']));
+      return;
+    }
+
+    // ---- what each effect size would cost ----
+    var groups = Math.max(arms.length, 2);
+    function row(cls, a, b, c) {
+      var r = document.createElement('div'); r.className = 'samp-row' + (cls ? ' ' + cls : '');
+      ['ef', 'np', 'tot'].forEach(function (k, i) {
+        var s = document.createElement('span'); s.className = k;
+        s.textContent = [a, b, c][i]; r.appendChild(s);
+      });
+      tab.appendChild(r);
+    }
+    row('head', 'If the real effect is', 'per group', 'total');
+    [['small  (d = 0.2)', 0.2], ['medium  (d = 0.5)', 0.5], ['large  (d = 0.8)', 0.8]]
+      .forEach(function (e) {
+        var per = nPerGroup(e[1]);
+        row(per * groups <= n ? 'reach' : 'short', e[0], per, per * groups);
+      });
+
+    // ---- what their own n can actually see ----
+    var perCell = Math.floor(n / groups);
+    var d = detectableD(perCell);
+    var sd = observedSd();
+    var parts = ['At n=', { b: n }, ' across ', { b: groups }, ' groups (',
+      { b: perCell }, ' each), the smallest difference you could call significant is ',
+      { b: 'd = ' + d.toFixed(2) }, ' — '];
+    parts.push(d <= 0.5 ? 'a small-to-medium effect.'
+             : d <= 0.8 ? 'a medium-to-large effect. Anything subtler will come back ' +
+                          'non-significant even if it is real.'
+             : 'a large effect. Anything subtler will come back non-significant even ' +
+               'if it is real.');
+    if (sd) {
+      parts.push(' On the item now in the run view (SD ', { b: sd.toFixed(2) },
+        '), that means the groups would have to differ by at least ',
+        { b: (d * sd).toFixed(2) }, ' scale points.');
+    }
+    mde.className = 'samp-mde ' + (d <= 0.5 ? 'ok' : 'tight');
+    mde.appendChild(frag(parts));
   }
 
   // ---------- per-stage views ----------
@@ -1922,6 +2170,9 @@ window.addEventListener('error', function (e) {
     if (next.construct && typeof next.construct === 'object') {
       spec.construct = mergeInto(spec.construct, next.construct);
     }
+    if (next.design && typeof next.design === 'object') {
+      spec.design = mergeInto(spec.design, next.design);
+    }
     if (typeof next.benchmark === 'string' && next.benchmark) {
       spec.benchmark = mergeInto(spec.benchmark, { source: next.benchmark });
     } else if (next.benchmark && typeof next.benchmark === 'object') {
@@ -2107,10 +2358,99 @@ window.addEventListener('error', function (e) {
 
   function toBottom() { window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }); }
 
-  function begin(topic) {
+  /* ---------------- the brief ---------------- */
+  // Captured before the interview starts, kept in spec.brief, and sent with every
+  // turn. "setting" is not decoration: a course assignment and a dissertation want
+  // very different standards from the same five stages.
+  var SETTINGS = ['Course assignment', 'Thesis or dissertation',
+                  'Independent research', 'Internship or work project'];
+
+  var briefBox = $('brief'), bq = $('bq'), bpop = $('bpop'), bsetopts = $('bsetopts'),
+      bsetother = $('bsetother'), bsetfree = $('bsetfree'), brieferr = $('brieferr');
+  var briefSetting = null;           // one of SETTINGS, or '' while free text is open
+  var afterBrief = null;             // what to run once the brief is filled in
+
+  SETTINGS.concat(['Something else…']).forEach(function (label, i) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = i === SETTINGS.length ? 'free' : '';
+    b.textContent = label;
+    b.addEventListener('click', function () {
+      var free = i === SETTINGS.length;
+      briefSetting = free ? '' : label;
+      bsetother.hidden = !free;
+      for (var k = 0; k < bsetopts.children.length; k++) {
+        bsetopts.children[k].classList.toggle('sel', k === i);
+      }
+      if (free) bsetfree.focus();
+      briefMsg('');
+    });
+    bsetopts.appendChild(b);
+  });
+
+  function briefMsg(text) { brieferr.hidden = !text; brieferr.textContent = text || ''; }
+
+  function settingValue() {
+    if (briefSetting) return briefSetting;
+    if (!bsetother.hidden) return bsetfree.value.trim();
+    return '';
+  }
+
+  // Shows the brief in place of the hero fields. `next` runs once it is submitted.
+  function showBrief(prefill, next) {
+    afterBrief = next;
+    bq.value = prefill || '';
+    briefBox.hidden = false;
+    $('stage').classList.add('briefing');
+    briefMsg('');
+    setTimeout(function () { bq.focus(); }, 60);
+  }
+  function hideBrief() {
+    briefBox.hidden = true;
+    $('stage').classList.remove('briefing');
+  }
+
+  $('briefback').addEventListener('click', function () { hideBrief(); entry.focus(); });
+
+  $('briefgo').addEventListener('click', function () {
+    var question = bq.value.trim();
+    // required but lenient: we only stop an empty box. Stage 2 does the sharpening.
+    if (!question) { briefMsg('Say what the survey is trying to find out.'); bq.focus(); return; }
+    var setting = settingValue();
+    if (!setting) { briefMsg('Pick what this is for, or describe it.'); return; }
+    var brief = { question: question, setting: setting };
+    var pop = bpop.value.trim();
+    if (pop) brief.population = pop;
+    hideBrief();
+    (afterBrief || begin)(brief);
+  });
+
+  function renderBriefCard() {
+    var b = (spec && spec.brief) || null;
+    var card = $('pbrief');
+    card.innerHTML = '';
+    card.hidden = !b;
+    if (!b) return;
+    [['Research question', b.question], ['Setting', b.setting],
+     ['Who', b.population]].forEach(function (pair) {
+      if (!pair[1]) return;
+      var row = document.createElement('div'); row.className = 'brow';
+      var k = document.createElement('div'); k.className = 'bk'; k.textContent = pair[0];
+      var v = document.createElement('div'); v.className = 'bv'; v.textContent = pair[1];
+      row.appendChild(k); row.appendChild(v);
+      card.appendChild(row);
+    });
+  }
+
+  function begin(brief) {
+    spec = spec || {};
+    spec.brief = brief;
     document.body.classList.add('talking');
     ghosts(60);
-    var line = 'I want to build a survey for ' + topic;
+    renderBriefCard();
+    var line = 'I want to build a survey to answer: ' + brief.question +
+      '. This is for a ' + brief.setting.toLowerCase() + '.' +
+      (brief.population ? ' I want to ask ' + brief.population + '.' : '');
     history.push({ role: 'user', text: line });
     addUser(line);
     ask();
@@ -2157,7 +2497,11 @@ window.addEventListener('error', function (e) {
           importGo.disabled = false;
           return;
         }
-        startFromImport(d);
+        // an imported questionnaire still needs a brief — it is what the whole
+        // interview is grounded on, and a parsed construct is only a guess at it
+        var guess = (d.construct && d.construct.definition) ||
+                    (d.construct && d.construct.name) || '';
+        showBrief(guess, function (brief) { startFromImport(d, brief); });
       })
       .catch(function (err) {
         importMessage('Import failed: ' + err.message);
@@ -2165,9 +2509,10 @@ window.addEventListener('error', function (e) {
       });
   });
 
-  function startFromImport(d) {
-    spec = { stage: 1, items: d.items, ready: 20 };
-    if (d.population) spec.population = d.population;
+  function startFromImport(d, brief) {
+    spec = { stage: 1, items: d.items, ready: 20, brief: brief };
+    if (brief && brief.population) spec.population = brief.population;
+    else if (d.population) spec.population = d.population;
     if (d.construct) spec.construct = d.construct;
     spec.reviews = d.reviews || [];
     // these items are already reviewed — don't let the first chat turn re-run it
@@ -2177,9 +2522,10 @@ window.addEventListener('error', function (e) {
     ghosts(60);
     renderPanel();
 
-    var name = (d.construct && d.construct.name) ? ' on ' + d.construct.name : '';
     var line = 'I’ve imported a survey — ' + d.items.length +
-      (d.items.length === 1 ? ' question' : ' questions') + name +
+      (d.items.length === 1 ? ' question' : ' questions') +
+      '. It should answer: ' + brief.question +
+      '. This is for a ' + brief.setting.toLowerCase() +
       '. Help me set up the panel and benchmark around it.';
     history.push({ role: 'user', text: line });
     addUser(line);
@@ -2329,7 +2675,8 @@ window.addEventListener('error', function (e) {
 
   field.addEventListener('submit', function (e) {
     e.preventDefault();
-    var v = entry.value.trim(); if (v) begin(v);
+    // the topic they typed becomes the first draft of the research question
+    var v = entry.value.trim(); if (v) showBrief(v, begin);
   });
 
   function syncSend() { send.classList.toggle('live', reply.value.trim().length > 0 && !busy); }
