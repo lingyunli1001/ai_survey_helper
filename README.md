@@ -1,21 +1,44 @@
 # Synthetic Panel
 
-Testing how well LLM-generated survey respondents reproduce real human survey data.
+Pretest a survey on synthetic respondents — language models conditioned on
+demographic profiles — before you spend money fielding it on real people.
 
-A staged interview walks you through designing a survey — who takes it, what it
-measures, the items, and the human benchmark to validate against. The panel of
-synthetic respondents assembles live alongside the conversation. Running an item
-asks each respondent independently and shows how far the resulting distribution
-sits from real human data.
+Two ways in:
+
+- **Design one from scratch.** A staged interview walks you through the
+  respondent, the construct, the item pool, and a human benchmark to compare
+  against. The panel of synthetic respondents assembles live alongside the
+  conversation.
+- **Bring your own.** Paste a questionnaire or upload a file (`.docx`, `.pdf`,
+  `.csv`, `.txt`). It is parsed into items grouped by facet, and the interview
+  picks up at Stage 1 to set up the panel around them.
+
+Either way you get:
+
+- **Wording review** on every item — double-barrels, leading phrasing,
+  unbalanced options, vague terms, presupposition — each with a concrete
+  rewrite, shown under the question.
+- **A synthetic run.** Each respondent answers the whole questionnaire in one
+  API call, in a shuffled order, the way a real respondent would — personas are
+  never batched together. The result view shows the distribution plus
+  per-question diagnostics: ceiling and floor effects, midpoint pile-up,
+  near-zero variance (the homogeneity artefact), and splits by subgroup.
+- **Export.** The questionnaire (Markdown or CSV, with the review notes) and the
+  run results (a Markdown report or CSV).
+
+The human benchmark is collected during design as a reference point; comparing
+the synthetic distribution against real crosstabs is still done by eye.
 
 ## Running locally
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+.venv/bin/pip install -r requirements.txt          # Windows: .venv\Scripts\pip
 cp .env.example .env        # then add a free key from aistudio.google.com/apikey
-.venv/bin/uvicorn app:app --reload --port 8010
+.venv/bin/uvicorn app:app --reload --port 8010     # Windows: .venv\Scripts\uvicorn
 ```
+
+Then open http://localhost:8010.
 
 ## After cloning: enable the secret-scanning hook
 
@@ -31,13 +54,23 @@ a key from being committed.
 ## Layout
 
 ```
-app.py              FastAPI — the interview prompt, /api/chat, /api/respond
-static/index.html   the whole client: landing, conversation, panel, stage views
+app.py              FastAPI backend
+  /api/chat         the staged design interview (streamed)
+  /api/import       parse a pasted or uploaded questionnaire
+  /api/review       wording review of the drafted items
+  /api/respond      one call per respondent, each answering the whole pool
+static/index.html   the whole client: landing, conversation, panel, stage views,
+                    diagnostics, export
 .githooks/          pre-commit secret scanner
 ```
 
 ## Notes
 
-Each synthetic respondent is asked in its own API call. Batching them into one
-request lets the personas see each other's answers and converge, which would
-invalidate the divergence measurement this tool exists to make.
+Personas are never batched into one request. That would let them see each
+other's answers and converge, destroying the divergence the run is meant to
+surface. Each respondent gets its own call; a shared pacer keeps every endpoint
+inside the free tier's 15-requests-a-minute limit.
+
+Synthetic respondents are not a substitute for human data. A tight,
+low-variance distribution is usually the model being uniform, not the
+population agreeing — the diagnostics call that out rather than hide it.
