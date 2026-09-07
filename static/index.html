@@ -331,6 +331,8 @@
   .scale span { font-size:11px; color:var(--muted); border:1px solid var(--rule);
                 border-radius:6px; padding:5px 9px; }
 
+  .qfmt { margin-top:7px; font-size:9.5px; letter-spacing:.09em; text-transform:uppercase;
+          color:var(--faint); }
   .qissues { margin-top:11px; display:flex; flex-direction:column; gap:8px; }
   .qissue { font-size:11.5px; line-height:1.5; color:var(--muted);
             border-left:2px solid var(--rule); padding-left:11px; }
@@ -675,8 +677,8 @@
             <div class="rgrid" id="rgrid"></div>
             <div class="hist" id="rhist"></div>
             <div class="spread" id="rspread" style="display:none">
-              <div class="stat"><b id="rmean">—</b><span>Mean</span></div>
-              <div class="stat"><b id="rsd">—</b><span>Std dev</span></div>
+              <div class="stat"><b id="rmean">—</b><span id="rmeanlab">Mean</span></div>
+              <div class="stat"><b id="rsd">—</b><span id="rsdlab">Std dev</span></div>
               <div class="stat"><b id="rmodal">—</b><span>Modal share</span></div>
             </div>
             <div class="finding" id="rfinding" style="display:none"></div>
@@ -745,6 +747,18 @@ window.addEventListener('error', function (e) {
     freq5:  ['Never','Rarely','Sometimes','Often','Always'],
     binary: ['Yes','No']
   };
+  // "choice" is nominal — its options have no order, so mean and standard
+  // deviation are meaningless and the run view reports concentration instead.
+  // "ordinal" carries its own labels but IS ordered, so it behaves like the
+  // named scales. Both keep their labels on the item itself.
+  var CUSTOM_SCALES = ['choice','ordinal'];
+  function pointsFor(it) {
+    if (it && it.options && it.options.length) return it.options;
+    return SCALE_POINTS[(it && it.scale) || 'agree5'] || SCALE_POINTS.agree5;
+  }
+  function isNominal(it) { return !!it && it.scale === 'choice'; }
+  var SCALE_LABEL = { agree5:'5-pt agreement', freq5:'5-pt frequency', binary:'yes / no',
+                      choice:'multiple choice', ordinal:'ordered options' };
   var viewStage = null;   // null = follow the live stage
   var tintBy = null;
 
@@ -1040,10 +1054,12 @@ window.addEventListener('error', function (e) {
       var n = document.createElement('div'); n.className = 'qn'; n.textContent = 'Q' + (i + 1);
       var t = document.createElement('div'); t.className = 'qt'; t.textContent = it.text || '';
       var sc = document.createElement('div'); sc.className = 'scale';
-      (SCALE_POINTS[it.scale] || SCALE_POINTS.agree5).forEach(function (pt) {
+      pointsFor(it).forEach(function (pt) {
         var b = document.createElement('span'); b.textContent = pt; sc.appendChild(b);
       });
-      q.appendChild(n); q.appendChild(t); q.appendChild(sc);
+      var fmt = document.createElement('div'); fmt.className = 'qfmt';
+      fmt.textContent = SCALE_LABEL[it.scale] || it.scale || 'agree5';
+      q.appendChild(n); q.appendChild(t); q.appendChild(sc); q.appendChild(fmt);
 
       var rv = reviewByKey(reviews, it.id, i);
       if (rv && rv.issues && rv.issues.length) {
@@ -1135,7 +1151,10 @@ window.addEventListener('error', function (e) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         items: items.map(function (it) {
-          return { id: it.id || '', text: it.text, scale: it.scale || 'agree5' };
+          // the unbalanced-options check can only work if it sees the options
+          var p = { id: it.id || '', text: it.text, scale: it.scale || 'agree5' };
+          if (it.options && it.options.length) p.options = it.options;
+          return p;
         }),
         population: (spec && spec.population) || null
       })
@@ -1274,8 +1293,9 @@ window.addEventListener('error', function (e) {
   }
 
   function renderResults(total) {
-    var scale = (spec.items || [])[runItem];
-    var points = SCALE_POINTS[(scale && scale.scale) || 'agree5'] || SCALE_POINTS.agree5;
+    var item = (spec.items || [])[runItem];
+    var points = pointsFor(item);
+    var nominal = isNominal(item);
 
     var grid = $('rgrid'); grid.innerHTML = '';
     for (var i = 0; i < total; i++) {
@@ -1309,16 +1329,28 @@ window.addEventListener('error', function (e) {
     });
 
     if (vals.length >= 2) {
-      var mean = vals.reduce(function (a, v) { return a + v; }, 0) / vals.length;
-      var variance = vals.reduce(function (a, v) { return a + (v - mean) * (v - mean); }, 0) / vals.length;
-      var sd = Math.sqrt(variance);
       var modal = Math.max.apply(null, counts) / vals.length;
       $('rspread').style.display = 'flex';
-      $('rmean').textContent = mean.toFixed(2);
-      $('rsd').textContent = sd.toFixed(2);
       $('rmodal').textContent = Math.round(modal * 100) + '%';
+      if (nominal) {
+        // averaging "Option C" is meaningless, so report what a nominal item
+        // actually has: which option won, and how much of the set got used
+        var top = counts.indexOf(Math.max.apply(null, counts));
+        var used = counts.filter(function (c) { return c > 0; }).length;
+        $('rmeanlab').textContent = 'Top choice';
+        $('rmean').textContent = points[top];
+        $('rsdlab').textContent = 'Options used';
+        $('rsd').textContent = used + ' / ' + points.length;
+      } else {
+        var mean = vals.reduce(function (a, v) { return a + v; }, 0) / vals.length;
+        var variance = vals.reduce(function (a, v) { return a + (v - mean) * (v - mean); }, 0) / vals.length;
+        $('rmeanlab').textContent = 'Mean';
+        $('rmean').textContent = mean.toFixed(2);
+        $('rsdlab').textContent = 'Std dev';
+        $('rsd').textContent = Math.sqrt(variance).toFixed(2);
+      }
       var rc = results[keyOf(runItem)];
-      renderFindings(diagnose(counts, points, answers, rc && rc.people));
+      renderFindings(diagnose(counts, points, answers, rc && rc.people, nominal));
       $('xr').style.display = 'flex';
     } else {
       $('rspread').style.display = 'none';
@@ -1331,14 +1363,83 @@ window.addEventListener('error', function (e) {
   // Per-item empirical checks over the synthetic answers. Each is a pattern a UX
   // researcher would want flagged before fielding the question — the text says
   // what to do about it, not just that it happened.
-  function diagnose(counts, points, ans, people) {
+  function diagnose(counts, points, ans, people, nominal) {
     var out = [];
     var vals = ans.filter(function (a) { return a && a.value; }).map(function (a) { return a.value; });
     if (vals.length < 5) return out;
     var n = vals.length, last = points.length - 1;
+    var share = counts.map(function (c) { return c / n; });
+    var topIdx = counts.indexOf(Math.max.apply(null, counts));
+    var modal = counts[topIdx] / n;
+
+    // group the answers by each demographic level once; both branches use it
+    var byDim = {};
+    if (people && people.length) {
+      ans.forEach(function (a, i) {
+        if (!a || !a.value) return;
+        var p = people[i]; if (!p || !p.vals) return;
+        Object.keys(p.vals).forEach(function (k) {
+          byDim[k] = byDim[k] || {};
+          (byDim[k][p.vals[k]] = byDim[k][p.vals[k]] || []).push(a.value);
+        });
+      });
+    }
+    function levelsOf(k) {
+      return Object.keys(byDim[k]).filter(function (l) { return byDim[k][l].length >= 3; });
+    }
+
+    if (nominal) {
+      // An unordered option set has no mean, no midpoint and no ends. What it can
+      // go wrong in is concentration and unused options.
+      if (modal >= 0.9) {
+        out.push({ sev: 'high', type: 'no discrimination', text: Math.round(modal * 100) +
+          '% picked "' + points[topIdx] + '". The question separates almost nobody — either ' +
+          'the answer is obvious and not worth asking, or the other options are not real ' +
+          'alternatives.' });
+      } else if (modal >= 0.65) {
+        out.push({ sev: 'med', type: 'dominant option', text: Math.round(modal * 100) +
+          '% picked "' + points[topIdx] + '". Fine if that is the finding, but check the other ' +
+          'options are ones people would actually choose.' });
+      }
+
+      var dead = [];
+      points.forEach(function (p, i) { if (!counts[i]) dead.push(p); });
+      if (dead.length) {
+        out.push({ sev: dead.length > 1 ? 'med' : 'low', type: 'unused options',
+          text: 'Nobody chose ' + dead.map(function (d) { return '"' + d + '"'; }).join(', ') +
+          '. Drop or reword — a dead option adds length without adding signal.' });
+      }
+
+      // subgroup split: different groups landing on different top choices
+      Object.keys(byDim).forEach(function (k) {
+        var levels = levelsOf(k);
+        if (levels.length < 2) return;
+        var tops = levels.map(function (l) {
+          var c = points.map(function (_, i) {
+            return byDim[k][l].filter(function (v) { return v === i + 1; }).length;
+          });
+          return { l: l, top: c.indexOf(Math.max.apply(null, c)) };
+        });
+        var distinct = {};
+        tops.forEach(function (t) { distinct[t.top] = t.l; });
+        if (Object.keys(distinct).length > 1) {
+          out.push({ sev: 'med', type: 'splits by ' + humanize(k),
+            text: tops.map(function (t) { return '"' + t.l + '" → ' + points[t.top]; }).join('; ') +
+            '. Groups pick different answers here, so the real sample needs enough people in ' +
+            'each group to see it.' });
+        }
+      });
+
+      if (!out.length) {
+        out.push({ sev: 'ok', type: 'no flags', text: 'The options are all in use and no single ' +
+          'one dominates (' + Math.round(modal * 100) + '% on the top choice). Still compare ' +
+          'against real data before trusting the shares.' });
+      }
+      return out;
+    }
+
     var mean = vals.reduce(function (a, v) { return a + v; }, 0) / n;
     var sd = Math.sqrt(vals.reduce(function (a, v) { return a + (v - mean) * (v - mean); }, 0) / n);
-    var share = counts.map(function (c) { return c / n; });
 
     if (share[last] >= 0.65) {
       out.push({ sev: 'high', type: 'ceiling effect', text: Math.round(share[last] * 100) +
@@ -1368,31 +1469,20 @@ window.addEventListener('error', function (e) {
     }
 
     // subgroup split — mean answer across the levels of each dimension
-    if (people && people.length) {
-      var byDim = {};
-      ans.forEach(function (a, i) {
-        if (!a || !a.value) return;
-        var p = people[i]; if (!p || !p.vals) return;
-        Object.keys(p.vals).forEach(function (k) {
-          byDim[k] = byDim[k] || {};
-          (byDim[k][p.vals[k]] = byDim[k][p.vals[k]] || []).push(a.value);
-        });
-      });
-      Object.keys(byDim).forEach(function (k) {
-        var levels = Object.keys(byDim[k]).filter(function (l) { return byDim[k][l].length >= 3; });
-        if (levels.length < 2) return;
-        var means = levels.map(function (l) {
-          var arr = byDim[k][l];
-          return { l: l, m: arr.reduce(function (a, v) { return a + v; }, 0) / arr.length };
-        }).sort(function (a, b) { return a.m - b.m; });
-        var hi = means[means.length - 1], lo = means[0];
-        if (hi.m - lo.m >= 1.2) {
-          out.push({ sev: 'med', type: 'splits by ' + humanize(k), text: '"' + hi.l + '" averaged ' +
-            hi.m.toFixed(1) + ' vs "' + lo.l + '" at ' + lo.m.toFixed(1) + '. If that contrast ' +
-            'matters to you, the real sample needs enough people in each group to see it.' });
-        }
-      });
-    }
+    Object.keys(byDim).forEach(function (k) {
+      var levels = levelsOf(k);
+      if (levels.length < 2) return;
+      var means = levels.map(function (l) {
+        var arr = byDim[k][l];
+        return { l: l, m: arr.reduce(function (a, v) { return a + v; }, 0) / arr.length };
+      }).sort(function (a, b) { return a.m - b.m; });
+      var hi = means[means.length - 1], lo = means[0];
+      if (hi.m - lo.m >= 1.2) {
+        out.push({ sev: 'med', type: 'splits by ' + humanize(k), text: '"' + hi.l + '" averaged ' +
+          hi.m.toFixed(1) + ' vs "' + lo.l + '" at ' + lo.m.toFixed(1) + '. If that contrast ' +
+          'matters to you, the real sample needs enough people in each group to see it.' });
+      }
+    });
 
     if (!out.length) {
       out.push({ sev: 'ok', type: 'no flags', text: 'Spread (SD ' + sd.toFixed(2) + ') and shape ' +
@@ -1437,7 +1527,6 @@ window.addEventListener('error', function (e) {
     return (String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '').slice(0, 40)) || 'survey';
   }
-  function scalePts(scale) { return SCALE_POINTS[scale] || SCALE_POINTS.agree5; }
 
   function questionnaireMd() {
     var s = spec || {}, c = s.construct || {}, its = s.items || [], reviews = s.reviews || [], L = [];
@@ -1451,7 +1540,7 @@ window.addEventListener('error', function (e) {
     its.forEach(function (it, i) {
       if (it.facet && it.facet !== seen) { seen = it.facet; L.push('### ' + it.facet, ''); }
       L.push((i + 1) + '. ' + (it.text || ''));
-      L.push('   _Scale:_ ' + scalePts(it.scale).join(' · '), '');
+      L.push('   _' + (SCALE_LABEL[it.scale] || it.scale) + ':_ ' + pointsFor(it).join(' · '), '');
     });
     var flagged = its.map(function (it, i) { return reviewByKey(reviews, it.id, i); }).filter(Boolean);
     if (flagged.length) {
@@ -1478,7 +1567,7 @@ window.addEventListener('error', function (e) {
       var flags = rv ? (rv.issues || []).map(function (x) { return x.type + ' (' + x.severity + ')'; }).join('; ') : '';
       var fixes = rv ? (rv.issues || []).map(function (x) { return x.fix; }).filter(Boolean).join(' || ') : '';
       rows.push([i + 1, it.id || '', it.facet || '', it.text || '', it.scale || 'agree5',
-        scalePts(it.scale).join('|'), flags, fixes]);
+        pointsFor(it).join('|'), flags, fixes]);
     });
     return toCSV(rows);
   }
@@ -1489,17 +1578,21 @@ window.addEventListener('error', function (e) {
     if (!item) return null;
     var rc = results[keyOf(runItem)];
     var pool = rc ? rc.answers : answers;
-    var points = scalePts(item.scale);
+    var points = pointsFor(item);
     var vals = pool.filter(function (a) { return a && a.value; }).map(function (a) { return a.value; });
     if (vals.length < 2) return null;
     var counts = points.map(function (_, i) { return vals.filter(function (v) { return v === i + 1; }).length; });
     var n = vals.length;
+    var nominal = isNominal(item);
     var mean = vals.reduce(function (a, v) { return a + v; }, 0) / n;
     var sd = Math.sqrt(vals.reduce(function (a, v) { return a + (v - mean) * (v - mean); }, 0) / n);
     var modal = Math.max.apply(null, counts) / n;
     var failed = pool.filter(function (a) { return a && a.error; }).length;
-    return { item: item, points: points, counts: counts, n: n, mean: mean, sd: sd, modal: modal,
-             failed: failed, findings: diagnose(counts, points, pool, rc && rc.people) };
+    return { item: item, points: points, counts: counts, n: n, nominal: nominal,
+             // mean and sd are meaningless over unordered options; omit rather
+             // than export a number nobody should read
+             mean: nominal ? null : mean, sd: nominal ? null : sd, modal: modal,
+             failed: failed, findings: diagnose(counts, points, pool, rc && rc.people, nominal) };
   }
 
   function resultsCsv(d) {
@@ -1512,7 +1605,8 @@ window.addEventListener('error', function (e) {
     var s = spec || {}, L = [];
     L.push('# Run results', '');
     L.push('**Item:** ' + (d.item.text || ''));
-    L.push('**Scale:** ' + d.points.join(' · '));
+    L.push('**Format:** ' + (SCALE_LABEL[d.item.scale] || d.item.scale || 'agree5'));
+    L.push('**Options:** ' + d.points.join(' · '));
     L.push('**Respondents:** ' + d.n + ' answered' + (d.failed ? ' (' + d.failed + ' failed)' : ''));
     if (s.population) L.push('**Population:** ' + s.population);
     if (s.dimensions && s.dimensions.length) {
@@ -1522,9 +1616,18 @@ window.addEventListener('error', function (e) {
     d.counts.forEach(function (c, i) {
       L.push('| ' + d.points[i] + ' | ' + c + ' | ' + (c / d.n * 100).toFixed(1) + '% |');
     });
-    L.push('', '## Statistics', '',
-      '- Mean: ' + d.mean.toFixed(2), '- Std dev: ' + d.sd.toFixed(2),
-      '- Modal share: ' + Math.round(d.modal * 100) + '%', '');
+    L.push('', '## Statistics', '');
+    if (d.nominal) {
+      var top = d.counts.indexOf(Math.max.apply(null, d.counts));
+      var used = d.counts.filter(function (c) { return c > 0; }).length;
+      L.push('- Top choice: ' + d.points[top],
+             '- Options used: ' + used + ' of ' + d.points.length,
+             '- Modal share: ' + Math.round(d.modal * 100) + '%',
+             '- _Mean and standard deviation are omitted: the options are unordered._', '');
+    } else {
+      L.push('- Mean: ' + d.mean.toFixed(2), '- Std dev: ' + d.sd.toFixed(2),
+             '- Modal share: ' + Math.round(d.modal * 100) + '%', '');
+    }
     if (d.findings && d.findings.length) {
       L.push('## Diagnostics', '');
       d.findings.forEach(function (f) {
@@ -1568,7 +1671,11 @@ window.addEventListener('error', function (e) {
       var n = parseInt($('rn').value, 10) || 20;
       var people = sample(n);
       var payloadItems = chosen.map(function (i) {
-        return { id: keyOf(i), text: items[i].text, scale: items[i].scale || 'agree5' };
+        // options must travel with the item: without them the server falls back to
+        // a named scale and shows the respondent the wrong answers entirely
+        var p = { id: keyOf(i), text: items[i].text, scale: items[i].scale || 'agree5' };
+        if (items[i].options && items[i].options.length) p.options = items[i].options;
+        return p;
       });
 
       // publish every cache entry up front so partial results survive a stop or a 429
@@ -1722,12 +1829,19 @@ window.addEventListener('error', function (e) {
         return;
       }
       if (at >= 0) {
-        out[at] = {
+        var next = {
           id: out[at].id,
           text: it.text || out[at].text,
           scale: it.scale || out[at].scale,
           facet: it.facet || out[at].facet
         };
+        // options travel with the scale: a rewrite that switches an item to a
+        // named scale must drop the old custom labels, not keep them alongside
+        var opts = (it.options && it.options.length) ? it.options
+                 : (it.scale && it.scale !== out[at].scale) ? null
+                 : out[at].options;
+        if (opts && opts.length) next.options = opts;
+        out[at] = next;
         return;
       }
       // Unknown id, or none at all: append. Preferring append over replace means a
@@ -1739,12 +1853,16 @@ window.addEventListener('error', function (e) {
       // result-cache slot, which makes a sweep drop items and then abort.
       var taken = {};
       out.forEach(function (x) { taken[x.id] = 1; });
-      out.push({
+      var fresh = {
         id: it.id || freeId(taken),
         text: it.text,
         scale: it.scale || 'agree5',
         facet: it.facet || ''
-      });
+      };
+      // a custom scale with no labels would render with no answers at all
+      if (it.options && it.options.length >= 2) fresh.options = it.options;
+      else if (CUSTOM_SCALES.indexOf(fresh.scale) >= 0) fresh.scale = 'agree5';
+      out.push(fresh);
     });
     return out;
   }
