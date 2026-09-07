@@ -1,4 +1,6 @@
 import asyncio
+import csv
+import io
 import json
 import os
 import random
@@ -9,9 +11,11 @@ from pathlib import Path
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
+
+MAX_UPLOAD = 5 * 1024 * 1024  # reject an imported file larger than this
 
 load_dotenv()
 
@@ -59,6 +63,13 @@ first be pretested on synthetic respondents — language models conditioned on \
 demographic profiles — before any real fieldwork.
 
 You work in five stages, in order. Never skip ahead, never work on two at once.
+
+IMPORTED SURVEY. If the CURRENT SPEC already carries items at the start of the
+conversation, the person imported their own questionnaire — those items ARE the
+pool. Do NOT run the Stage 3 auto-draft and do not rewrite them. Acknowledge the
+import in one clause, then start at STAGE 1. Your job is the respondent, the
+construct, and the benchmark around the items they gave you; you may still suggest
+wording fixes when asked.
 
 STAGE 1 — RESPONDENT. Who takes this survey?
   Every synthetic respondent gets conditioned on the profile defined here.
@@ -229,6 +240,17 @@ class RespondRequest(BaseModel):
     personas: list[Persona]
 
 
+class ReviewItem(BaseModel):
+    id: str = ""
+    text: str
+    scale: str = "agree5"
+
+
+class ReviewRequest(BaseModel):
+    items: list[ReviewItem]
+    population: str | None = None
+
+
 SCALE_POINTS = {
     "agree5": [
         "Strongly disagree", "Disagree", "Neutral", "Agree", "Strongly agree",
@@ -254,6 +276,62 @@ own sake, and do not give the same rating to everything.
 
 Answer every question. Reply with one line per question: the question number, a space,
 then the number of your choice. Nothing else — no words, no explanation."""
+
+
+# Wording review of the drafted items — phrasing only, never whether the topic is
+# worth studying, and no invented problems (a clean item gets no entry).
+REVIEW_PROMPT = """You are a survey methodologist checking draft questionnaire items \
+for wording problems only. Judge phrasing, never whether the topic matters, and do \
+not invent problems.
+
+Population: {population}
+
+Items, each shown as  id | scale | text :
+{items}
+
+For each item that has a real problem, report it. Check for:
+- double-barreled: asks about two things at once
+- leading or loaded: pushes toward an answer, or uses emotive language
+- unbalanced options, or a missing neutral / "don't know" where one is needed
+- vague quantifiers or undefined terms ("often", "regularly", unexplained jargon)
+- double negatives
+- presupposition: assumes a fact about the respondent not yet established
+
+Return ONLY JSON, no code fences, nothing around it:
+{{"reviews":[{{"id":"q3","issues":[{{"type":"double-barreled","severity":"high",\
+"note":"one plain-language sentence naming the problem","fix":"a concrete rewrite"}}]}}]}}
+
+severity is "high", "med", or "low". Use each item's own id. Omit every item that is
+fine. If none have problems, return exactly {{"reviews":[]}}."""
+
+
+# Parse a pasted or uploaded questionnaire into the same shape the interview builds,
+# and run the wording review in the same call to save a round-trip.
+IMPORT_PROMPT = """Below is the raw text of a survey someone already wrote. Pull the \
+actual questionnaire items out of it — ignore the title, instructions, consent \
+blocks, section headers, and page numbers.
+
+RAW TEXT
+{raw}
+
+Return ONLY JSON, no code fences, nothing around it:
+{{"population": "one short phrase for who this survey seems aimed at, or null",
+  "construct": {{"name": "short label for what it measures", "definition": "one sentence"}},
+  "items": [{{"id": "q1", "text": "the question, verbatim where possible",
+    "facet": "short label for the sub-area it covers", "scale": "agree5|freq5|binary"}}],
+  "reviews": [{{"id": "q1", "issues": [{{"type": "double-barreled", "severity": "high",
+    "note": "one plain-language sentence", "fix": "a concrete rewrite"}}]}}]}}
+
+Rules:
+- id: q1, q2, q3 … in the order the items appear.
+- scale: "agree5" for agreement/attitude items, "freq5" for how-often items,
+  "binary" for yes/no. When unsure, "agree5".
+- facet: group the items into 3-6 named sub-areas; best-effort from the wording.
+- population and construct are best-effort guesses; use null / short values, do
+  not invent detail.
+- reviews: the same wording check — double-barreled, leading, unbalanced options,
+  vague terms, double negatives, presupposition. Omit clean items; [] if all clean.
+- If no real survey items can be found, return {{"items": []}}."""
 
 
 @app.get("/")
@@ -407,6 +485,214 @@ async def _ask_one(client, gate, person, items: list[Item]):
         "error": None,
         "missing": missing or None,
     }
+
+
+async def _one_shot_json(prompt: str, max_tokens: int = 1600) -> tuple[dict | None, str]:
+    """One non-streaming generateContent call that must return a JSON object.
+
+    Returns (parsed_dict_or_None, error_message). Routes through the shared pacer
+    so it counts against the same per-minute budget as everything else.
+    """
+    payload = {
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": 0.2,
+            "maxOutputTokens": max_tokens,
+            "responseMimeType": "application/json",
+        },
+    }
+    await _throttle()
+    try:
+        async with httpx.AsyncClient(timeout=40.0) as client:
+            r = await client.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent",
+                json=payload,
+                headers={"x-goog-api-key": API_KEY},
+            )
+    except httpx.HTTPError as exc:
+        return None, str(exc)[:120]
+    if r.status_code != 200:
+        message, _ = _readable_error(r.status_code, r.text)
+        return None, message
+    try:
+        parts = r.json()["candidates"][0]["content"]["parts"]
+        data = json.loads("".join(p.get("text", "") for p in parts))
+    except (KeyError, IndexError, json.JSONDecodeError):
+        return None, "the model did not return valid JSON"
+    return (data if isinstance(data, dict) else None), ""
+
+
+def _clean_reviews(reviews, ids: set[str], n_items: int) -> list:
+    """Keep only well-formed entries the client can trust. Accepts an item id, or a
+    0-based index as a fallback for callers that did not send ids."""
+    out = []
+    for rv in reviews if isinstance(reviews, list) else []:
+        if not isinstance(rv, dict):
+            continue
+        key = rv.get("id")
+        if key not in ids:
+            try:
+                idx = int(rv.get("i", rv.get("id")))
+            except (TypeError, ValueError):
+                continue
+            if not 0 <= idx < n_items:
+                continue
+            key = idx
+        issues = []
+        for it in rv.get("issues", []) or []:
+            if not isinstance(it, dict) or not it.get("note"):
+                continue
+            sev = it.get("severity", "med")
+            issues.append(
+                {
+                    "type": str(it.get("type", "issue"))[:40],
+                    "severity": sev if sev in ("high", "med", "low") else "med",
+                    "note": str(it["note"])[:300],
+                    "fix": str(it.get("fix", ""))[:300],
+                }
+            )
+        if issues:
+            out.append({"id": key, "issues": issues})
+    return out
+
+
+@app.post("/api/review")
+async def review(req: ReviewRequest):
+    """Flag wording problems in the drafted items. Always returns {"reviews": [...]};
+    on any failure the list is empty and "error" carries the reason."""
+    if not API_KEY:
+        return {"reviews": [], "error": "No GEMINI_API_KEY configured on the server."}
+    if not req.items:
+        return {"reviews": []}
+
+    listing = "\n".join(
+        f"{it.id or i} | {it.scale} | {it.text}" for i, it in enumerate(req.items)
+    )
+    data, err = await _one_shot_json(
+        REVIEW_PROMPT.format(population=req.population or "not specified", items=listing)
+    )
+    if data is None:
+        return {"reviews": [], "error": err}
+
+    ids = {it.id for it in req.items if it.id}
+    return {"reviews": _clean_reviews(data.get("reviews", []), ids, len(req.items))}
+
+
+@app.post("/api/import")
+async def import_survey(
+    raw: str | None = Form(default=None),
+    file: UploadFile | None = File(default=None),
+):
+    """Turn a pasted or uploaded questionnaire into a spec patch:
+    {population, construct, items, reviews}. On failure: {items: [], error}."""
+    if not API_KEY:
+        return {"items": [], "error": "No GEMINI_API_KEY configured on the server."}
+
+    text = (raw or "").strip()
+    if file is not None:
+        blob = await file.read()
+        if len(blob) > MAX_UPLOAD:
+            return {"items": [], "error": "File is larger than 5 MB."}
+        try:
+            text = _extract_file_text(file.filename or "", blob)
+        except ValueError as exc:
+            return {"items": [], "error": str(exc)}
+
+    text = text.strip()
+    if len(text) < 15:
+        return {"items": [], "error": "No readable survey text found in that input."}
+    text = text[:20000]  # keep the prompt bounded
+
+    data, err = await _one_shot_json(IMPORT_PROMPT.format(raw=text), max_tokens=4000)
+    if data is None:
+        return {"items": [], "error": err or "Could not parse the survey from that text."}
+    return _clean_import(data)
+
+
+def _extract_file_text(name: str, blob: bytes) -> str:
+    """Plain text out of an uploaded file. Raises ValueError on an unsupported type
+    or a file that yields nothing."""
+    ext = name.lower().rsplit(".", 1)[-1] if "." in name else ""
+
+    if ext in ("txt", "md", "text", ""):
+        return blob.decode("utf-8", "replace")
+
+    if ext == "csv":
+        rows = csv.reader(io.StringIO(blob.decode("utf-8", "replace")))
+        return "\n".join(" ".join(c.strip() for c in row if c) for row in rows)
+
+    if ext == "docx":
+        from docx import Document
+
+        doc = Document(io.BytesIO(blob))
+        chunks = [p.text for p in doc.paragraphs if p.text.strip()]
+        for table in doc.tables:
+            for row in table.rows:
+                cells = [c.text.strip() for c in row.cells if c.text.strip()]
+                if cells:
+                    chunks.append(" | ".join(cells))
+        return "\n".join(chunks)
+
+    if ext == "pdf":
+        from pypdf import PdfReader
+
+        reader = PdfReader(io.BytesIO(blob))
+        joined = "\n".join((pg.extract_text() or "") for pg in reader.pages).strip()
+        if not joined:
+            raise ValueError(
+                "That PDF has no extractable text — it may be a scan. "
+                "Paste the questions in instead."
+            )
+        return joined
+
+    if ext == "doc":
+        raise ValueError("Old .doc files aren't supported — save it as .docx and retry.")
+
+    raise ValueError(f"Unsupported file type: .{ext}")
+
+
+def _clean_import(data: dict) -> dict:
+    """Coerce the model's parse into the shape the client merges into `spec`."""
+    scales = {"agree5", "freq5", "binary"}
+    items = []
+    for i, it in enumerate(data.get("items", []) or [], start=1):
+        if not isinstance(it, dict):
+            continue
+        txt = str(it.get("text", "")).strip()
+        if not txt:
+            continue
+        scale = it.get("scale", "agree5")
+        items.append(
+            {
+                "id": str(it.get("id") or f"q{i}")[:12],
+                "text": txt[:400],
+                "facet": str(it.get("facet", "")).strip()[:60],
+                "scale": scale if scale in scales else "agree5",
+            }
+        )
+
+    out: dict = {"items": items}
+    if not items:
+        out["error"] = "No survey questions were found in that text."
+        return out
+
+    pop = data.get("population")
+    if isinstance(pop, str) and pop.strip():
+        out["population"] = pop.strip()[:200]
+
+    con = data.get("construct")
+    if isinstance(con, dict):
+        c = {}
+        if str(con.get("name", "")).strip():
+            c["name"] = str(con["name"]).strip()[:120]
+        if str(con.get("definition", "")).strip():
+            c["definition"] = str(con["definition"]).strip()[:300]
+        if c:
+            out["construct"] = c
+
+    ids = {it["id"] for it in items}
+    out["reviews"] = _clean_reviews(data.get("reviews", []), ids, len(items))
+    return out
 
 
 async def _error_stream(message: str):
