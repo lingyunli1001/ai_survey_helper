@@ -305,8 +305,14 @@
   .spread { margin-top:18px; display:flex; gap:0; border:1px solid var(--rule-soft);
             border-radius:9px; overflow:hidden; }
   .spread .stat b { font-variant-numeric:tabular-nums; }
-  .finding { margin-top:18px; font-size:12.5px; line-height:1.6; color:var(--muted);
-             border-left:2px solid var(--accent); padding-left:13px; }
+  .finding { margin-top:18px; display:flex; flex-direction:column; gap:9px; }
+  .fitem { font-size:12.5px; line-height:1.6; color:var(--muted);
+           border-left:2px solid var(--rule); padding-left:13px; }
+  .fitem .ft { display:block; font-size:9.5px; letter-spacing:.09em;
+               text-transform:uppercase; color:var(--faint); margin-bottom:3px; }
+  .fitem.sev-high { border-left-color:var(--warn); color:var(--text); }
+  .fitem.sev-med  { border-left-color:var(--focus); }
+  .fitem.sev-ok   { border-left-color:var(--live); }
 
   /* stage 3 — questionnaire preview */
   .form-prev { margin-top:16px; border:1px solid var(--rule-soft); border-radius:10px;
@@ -324,6 +330,55 @@
   .scale { display:flex; gap:6px; flex-wrap:wrap; }
   .scale span { font-size:11px; color:var(--muted); border:1px solid var(--rule);
                 border-radius:6px; padding:5px 9px; }
+
+  .qissues { margin-top:11px; display:flex; flex-direction:column; gap:8px; }
+  .qissue { font-size:11.5px; line-height:1.5; color:var(--muted);
+            border-left:2px solid var(--rule); padding-left:11px; }
+  .qissue.sev-high { border-left-color:var(--warn); }
+  .qissue.sev-med  { border-left-color:var(--focus); }
+  .qissue .qi-type { display:block; font-size:9px; letter-spacing:.09em;
+                     text-transform:uppercase; color:var(--faint); margin-bottom:2px; }
+  .qissue .qi-fix { display:block; margin-top:4px; color:var(--text); font-style:italic; }
+  .qcheck { margin-top:12px; font-size:11px; color:var(--live);
+            border-left:2px solid var(--live); padding-left:11px; }
+  .qreviewing { margin-top:12px; font-size:11px; color:var(--faint); font-style:italic; }
+
+  /* stage 5 — questionnaire / results export */
+  .exportbar { margin-top:16px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .exportbar .xlab { font-size:10.5px; letter-spacing:.09em; text-transform:uppercase; color:var(--faint); }
+  .exportbar button { font:inherit; font-size:12px; color:var(--text); background:var(--surface);
+                      border:1px solid var(--rule); border-radius:8px; padding:6px 12px; cursor:pointer;
+                      transition:border-color .16s, background .16s; }
+  .exportbar button:hover { border-color:var(--focus);
+                            background:color-mix(in srgb, var(--accent) 4%, var(--surface)); }
+
+  /* landing — import an existing survey */
+  .import { margin-top:26px; max-width:560px; opacity:0; transition:opacity .55s .18s; }
+  .import.ready { opacity:1; }
+  .import-toggle { font:inherit; font-size:12.5px; color:var(--faint); background:none;
+                   border:0; padding:0; cursor:pointer; text-decoration:underline; text-underline-offset:3px; }
+  .import-toggle:hover { color:var(--text); }
+  .import-panel { margin-top:14px; display:flex; flex-direction:column; gap:10px; }
+  .import-panel textarea {
+    width:100%; resize:vertical; min-height:92px; font:inherit; font-size:13.5px;
+    line-height:1.5; color:var(--text); background:var(--surface);
+    border:1px solid var(--rule); border-radius:10px; padding:11px 13px; outline:none;
+    transition:border-color .2s;
+  }
+  .import-panel textarea:focus { border-color:var(--focus); }
+  .import-panel textarea::placeholder { color:var(--faint); }
+  .import-row { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .import-file { display:inline-flex; align-items:center; gap:8px; font-size:12px; color:var(--muted); cursor:pointer; }
+  .import-file input { position:absolute; width:1px; height:1px; opacity:0; pointer-events:none; }
+  .import-file span { border:1px dashed var(--rule); border-radius:8px; padding:7px 11px;
+                      transition:border-color .16s, color .16s; }
+  .import-file:hover span { border-color:var(--focus); color:var(--text); }
+  .import-go { font:inherit; font-size:13px; color:var(--bg); background:var(--accent);
+               border:0; border-radius:9px; padding:9px 16px; cursor:pointer; transition:opacity .18s; }
+  .import-go:hover { opacity:.85; }
+  .import-go[disabled] { opacity:.4; cursor:default; }
+  .import-msg { font-size:12px; line-height:1.5; color:var(--warn); }
+  .import-msg.work { color:var(--muted); }
 
   /* stage 4 — benchmark */
   .src { margin-top:16px; border:1px solid var(--rule-soft); border-left:3px solid var(--accent);
@@ -485,6 +540,24 @@
         </button>
       </form>
       <div class="suggestions" id="suggestions"><span class="label">Try</span></div>
+
+      <div class="import" id="import">
+        <button class="import-toggle" id="importToggle" type="button" aria-expanded="false">
+          Already have a survey? Paste or upload it
+        </button>
+        <div class="import-panel" id="importPanel" hidden>
+          <textarea id="importText" rows="5"
+            placeholder="Paste your questions here — one per line is fine, messy is fine."></textarea>
+          <div class="import-row">
+            <label class="import-file">
+              <input type="file" id="importFile" accept=".txt,.md,.csv,.docx,.pdf">
+              <span id="importFileName">Choose a file — .docx, .pdf, .csv, .txt</span>
+            </label>
+            <button class="import-go" id="importGo" type="button">Review it</button>
+          </div>
+          <div class="import-msg" id="importMsg" hidden></div>
+        </div>
+      </div>
     </div>
 
     <!-- workspace -->
@@ -575,6 +648,13 @@
           <div class="kv"><div class="k">Construct</div><div class="v small" id="rcon">—</div></div>
           <div class="kv"><div class="k">Items</div><div class="v small" id="rit">—</div></div>
           <div class="kv"><div class="k">Benchmark</div><div class="v small" id="rben">—</div></div>
+
+          <div class="exportbar" id="xq" style="display:none">
+            <span class="xlab">Export questionnaire</span>
+            <button type="button" data-x="q-md">Markdown</button>
+            <button type="button" data-x="q-csv">CSV</button>
+          </div>
+
           <div class="section">
             <h3>Run on the panel</h3>
             <div class="itempick" id="ritems"></div>
@@ -600,6 +680,11 @@
               <div class="stat"><b id="rmodal">—</b><span>Modal share</span></div>
             </div>
             <div class="finding" id="rfinding" style="display:none"></div>
+            <div class="exportbar" id="xr" style="display:none">
+              <span class="xlab">Export results</span>
+              <button type="button" data-x="r-md">Report</button>
+              <button type="button" data-x="r-csv">CSV</button>
+            </div>
           </div>
         </div>
       </aside>
@@ -627,10 +712,19 @@ window.addEventListener('error', function (e) {
   var HEADLINE = 'Hello. I want to build a survey for';
   var PLACEHOLDERS = ['attitudes toward AI at work…','how shoppers over 60 pick a brand…',
                       'trust in online reviews…','remote work preferences by income…'];
-  var CHIPS = ['attitudes toward AI at work','trust in online reviews','remote work preferences',
+  // The hero shows a random SHOWN of these each load, so two visitors — and two
+  // reloads — almost never see the same set. Keep the pool well above SHOWN.
+  var CHIP_POOL = ['attitudes toward AI at work','trust in online reviews','remote work preferences',
                'how Gen Z picks a bank','support for a four-day week','vaccine hesitancy by region',
                'news sources people trust','what makes people quit a job','climate habits at home',
-               'streaming vs cable over 50'];
+               'streaming vs cable over 50','who people trust for medical advice','tipping norms after covid',
+               'return-to-office resentment','how parents choose a school','crypto as a retirement plan',
+               'loneliness among remote workers','buying a first EV','trust in local journalism',
+               'grocery brand loyalty over 60','burnout in healthcare workers','dating app fatigue',
+               'homeownership hopes under 35','screen-time guilt','union support by age',
+               'AI in the classroom','where people get financial advice'];
+  var SHOWN = 7;                       // how many chips appear at once
+  var LAST_KEY = 'sp_hero_chips';      // remembers the previous batch to avoid repeats
   var SENTINEL = '§SPEC§';
   var SCALES = { agree5:'5-pt agree', freq5:'5-pt frequency', binary:'yes / no' };
 
@@ -658,6 +752,8 @@ window.addEventListener('error', function (e) {
   var busy = false;
   var spec = null;
   var lastSignatures = [];
+  var lastReviewedSig = null;   // item id+text last sent to /api/review
+  var reviewPending = false;    // a wording review is in flight
   var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   /* ---------------- deterministic sampling ---------------- */
@@ -928,6 +1024,7 @@ window.addEventListener('error', function (e) {
     }
 
     var items = spec.items || [];
+    var reviews = spec.reviews || [];
     pform.innerHTML = '';
     pform.style.display = items.length ? 'block' : 'none';
     pformEmpty.style.display = items.length ? 'none' : 'block';
@@ -947,8 +1044,41 @@ window.addEventListener('error', function (e) {
         var b = document.createElement('span'); b.textContent = pt; sc.appendChild(b);
       });
       q.appendChild(n); q.appendChild(t); q.appendChild(sc);
+
+      var rv = reviewByKey(reviews, it.id, i);
+      if (rv && rv.issues && rv.issues.length) {
+        var box = document.createElement('div'); box.className = 'qissues';
+        rv.issues.forEach(function (is) {
+          var d = document.createElement('div');
+          d.className = 'qissue sev-' + (is.severity || 'med');
+          var ty = document.createElement('span'); ty.className = 'qi-type';
+          ty.textContent = is.type || 'issue';
+          var nt = document.createElement('span'); nt.textContent = is.note || '';
+          d.appendChild(ty); d.appendChild(nt);
+          if (is.fix) {
+            var fx = document.createElement('span'); fx.className = 'qi-fix';
+            fx.textContent = 'Rewrite: ' + is.fix;
+            d.appendChild(fx);
+          }
+          box.appendChild(d);
+        });
+        q.appendChild(box);
+      }
       pform.appendChild(q);
     });
+    if (items.length) {
+      var note = document.createElement('div');
+      if (reviewPending) {
+        note.className = 'qreviewing'; note.textContent = 'Checking wording…';
+      } else if (lastReviewedSig) {
+        var nf = reviews.reduce(function (a, x) { return a + ((x.issues || []).length); }, 0);
+        note.className = nf ? 'qreviewing' : 'qcheck';
+        note.textContent = nf
+          ? nf + ' wording ' + (nf > 1 ? 'issues' : 'issue') + ' flagged above.'
+          : 'Wording check passed — no problems flagged.';
+      }
+      if (note.textContent) pform.appendChild(note);
+    }
 
     // tolerate both the object shape and the earlier plain-string benchmark
     var b = spec.benchmark;
@@ -969,12 +1099,55 @@ window.addEventListener('error', function (e) {
       answers = rc ? rc.answers : [];
       renderResults(rc ? rc.n : 0);
     }
+    $('xq').style.display = items.length ? 'flex' : 'none';
+    var nFlags = reviews.reduce(function (a, x) { return a + ((x.issues || []).length); }, 0);
     $('rpop').textContent = spec.population || '—';
     $('rcon').textContent = c.name || '—';
-    $('rit').textContent  = items.length ? items.length + ' items drafted' : '—';
+    $('rit').textContent  = items.length
+      ? items.length + ' items drafted' + (nFlags ? ' · ' + nFlags + ' wording flag' + (nFlags > 1 ? 's' : '') : '')
+      : '—';
     $('rben').textContent = (b && b.source) || '—';
 
     showStage(viewStage || liveStage());
+  }
+
+  // Match a review entry to an item by id, falling back to 0-based index.
+  function reviewByKey(reviews, id, idx) {
+    for (var i = 0; i < reviews.length; i++) {
+      if (reviews[i].id === id || reviews[i].id === idx) return reviews[i];
+    }
+    return null;
+  }
+
+  // Wording review of the current items. Fires once per set of item id+text — a
+  // turn that only touches the population or benchmark won't re-trigger it.
+  // Failures are swallowed: the review is an enhancement, never a blocker.
+  function requestReview() {
+    var items = (spec && spec.items) || [];
+    if (items.length < 1) return;
+    var sig = JSON.stringify(items.map(function (it) { return [it.id, it.text]; }));
+    if (sig === lastReviewedSig || reviewPending) return;
+    lastReviewedSig = sig;
+    reviewPending = true;
+    renderStageViews();
+    fetch('/api/review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        items: items.map(function (it) {
+          return { id: it.id || '', text: it.text, scale: it.scale || 'agree5' };
+        }),
+        population: (spec && spec.population) || null
+      })
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (lastReviewedSig !== sig) return;          // items moved on; drop stale result
+      spec.reviews = (d && d.reviews) || [];
+    }).catch(function () {
+      if (lastReviewedSig === sig) lastReviewedSig = null;   // let it retry next turn
+    }).then(function () {
+      reviewPending = false;
+      renderStageViews();
+    });
   }
 
   function liveStage() {
@@ -1144,25 +1317,243 @@ window.addEventListener('error', function (e) {
       $('rmean').textContent = mean.toFixed(2);
       $('rsd').textContent = sd.toFixed(2);
       $('rmodal').textContent = Math.round(modal * 100) + '%';
-
-      var fin = $('rfinding');
-      fin.style.display = 'block';
-      if (sd < 0.35) {
-        fin.textContent = 'Near-zero variance: ' + Math.round(modal * 100) + '% of respondents ' +
-          'gave the same answer despite differing profiles. Real populations do not do this — ' +
-          'this is the homogeneity artefact, and it is the measurement worth reporting.';
-      } else if (sd < 0.8) {
-        fin.textContent = 'Low spread (SD ' + sd.toFixed(2) + '). Human samples on 5-point ' +
-          'attitude items typically run nearer SD 1.0-1.3.';
-      } else {
-        fin.textContent = 'Spread (SD ' + sd.toFixed(2) + ') is in the range real survey ' +
-          'samples usually show. Compare against the benchmark crosstab before trusting it.';
-      }
+      var rc = results[keyOf(runItem)];
+      renderFindings(diagnose(counts, points, answers, rc && rc.people));
+      $('xr').style.display = 'flex';
     } else {
       $('rspread').style.display = 'none';
       $('rfinding').style.display = 'none';
+      $('rfinding').innerHTML = '';
+      $('xr').style.display = 'none';
     }
   }
+
+  // Per-item empirical checks over the synthetic answers. Each is a pattern a UX
+  // researcher would want flagged before fielding the question — the text says
+  // what to do about it, not just that it happened.
+  function diagnose(counts, points, ans, people) {
+    var out = [];
+    var vals = ans.filter(function (a) { return a && a.value; }).map(function (a) { return a.value; });
+    if (vals.length < 5) return out;
+    var n = vals.length, last = points.length - 1;
+    var mean = vals.reduce(function (a, v) { return a + v; }, 0) / n;
+    var sd = Math.sqrt(vals.reduce(function (a, v) { return a + (v - mean) * (v - mean); }, 0) / n);
+    var share = counts.map(function (c) { return c / n; });
+
+    if (share[last] >= 0.65) {
+      out.push({ sev: 'high', type: 'ceiling effect', text: Math.round(share[last] * 100) +
+        '% chose "' + points[last] + '". The item barely separates anyone — reword it so ' +
+        'agreement takes more, or add a stronger option at that end.' });
+    } else if (share[0] >= 0.65) {
+      out.push({ sev: 'high', type: 'floor effect', text: Math.round(share[0] * 100) +
+        '% chose "' + points[0] + '". Same problem at the low end — rework the stem or the options.' });
+    }
+
+    if (points.length % 2 === 1) {
+      var mid = (points.length - 1) / 2;
+      if (share[mid] >= 0.55) {
+        out.push({ sev: 'med', type: 'midpoint pile-up', text: Math.round(share[mid] * 100) +
+          '% parked on "' + points[mid] + '". Often means the wording is vague or respondents ' +
+          'have no real view — tighten the terms or add a "don’t know".' });
+      }
+    }
+
+    if (sd < 0.35) {
+      out.push({ sev: 'high', type: 'near-zero variance', text: 'SD ' + sd.toFixed(2) +
+        ' — different profiles gave nearly identical answers. Real samples don’t do this; ' +
+        'treat this item’s distribution as a synthetic-panel artefact, not a preview.' });
+    } else if (sd < 0.8) {
+      out.push({ sev: 'med', type: 'low spread', text: 'SD ' + sd.toFixed(2) +
+        '. Human samples on 5-point attitude items usually run nearer 1.0–1.3.' });
+    }
+
+    // subgroup split — mean answer across the levels of each dimension
+    if (people && people.length) {
+      var byDim = {};
+      ans.forEach(function (a, i) {
+        if (!a || !a.value) return;
+        var p = people[i]; if (!p || !p.vals) return;
+        Object.keys(p.vals).forEach(function (k) {
+          byDim[k] = byDim[k] || {};
+          (byDim[k][p.vals[k]] = byDim[k][p.vals[k]] || []).push(a.value);
+        });
+      });
+      Object.keys(byDim).forEach(function (k) {
+        var levels = Object.keys(byDim[k]).filter(function (l) { return byDim[k][l].length >= 3; });
+        if (levels.length < 2) return;
+        var means = levels.map(function (l) {
+          var arr = byDim[k][l];
+          return { l: l, m: arr.reduce(function (a, v) { return a + v; }, 0) / arr.length };
+        }).sort(function (a, b) { return a.m - b.m; });
+        var hi = means[means.length - 1], lo = means[0];
+        if (hi.m - lo.m >= 1.2) {
+          out.push({ sev: 'med', type: 'splits by ' + humanize(k), text: '"' + hi.l + '" averaged ' +
+            hi.m.toFixed(1) + ' vs "' + lo.l + '" at ' + lo.m.toFixed(1) + '. If that contrast ' +
+            'matters to you, the real sample needs enough people in each group to see it.' });
+        }
+      });
+    }
+
+    if (!out.length) {
+      out.push({ sev: 'ok', type: 'no flags', text: 'Spread (SD ' + sd.toFixed(2) + ') and shape ' +
+        'are in the range real samples show. Still compare against the benchmark crosstab before trusting it.' });
+    }
+    return out;
+  }
+
+  function renderFindings(list) {
+    var fin = $('rfinding');
+    fin.innerHTML = '';
+    fin.style.display = list.length ? 'flex' : 'none';
+    list.forEach(function (f) {
+      var d = document.createElement('div');
+      d.className = 'fitem sev-' + (f.sev || 'med');
+      var t = document.createElement('span'); t.className = 'ft'; t.textContent = f.type || 'finding';
+      var b = document.createElement('span'); b.textContent = f.text || '';
+      d.appendChild(t); d.appendChild(b);
+      fin.appendChild(d);
+    });
+  }
+
+  /* ---------------- export ---------------- */
+  // Client-side only: build the text, hand the browser a Blob. This is a served
+  // page, not a sandboxed artifact, so <a download> works normally.
+  function downloadText(name, text, mime) {
+    var blob = new Blob([text], { type: (mime || 'text/plain') + ';charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+  function csvCell(v) {
+    var s = String(v == null ? '' : v);
+    return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+  function toCSV(rows) {
+    return rows.map(function (r) { return r.map(csvCell).join(','); }).join('\r\n') + '\r\n';
+  }
+  function slug(s) {
+    return (String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '').slice(0, 40)) || 'survey';
+  }
+  function scalePts(scale) { return SCALE_POINTS[scale] || SCALE_POINTS.agree5; }
+
+  function questionnaireMd() {
+    var s = spec || {}, c = s.construct || {}, its = s.items || [], reviews = s.reviews || [], L = [];
+    L.push('# Survey — ' + (c.name || s.population || 'untitled'), '');
+    if (s.population) L.push('**Population:** ' + s.population);
+    if (c.name) L.push('**Construct:** ' + c.name + (c.definition ? ' — ' + c.definition : ''));
+    var bm = s.benchmark; if (typeof bm === 'string') bm = { source: bm };
+    if (bm && bm.source) L.push('**Benchmark:** ' + bm.source + (bm.item ? ' — ' + bm.item : ''));
+    L.push('', '## Items', '');
+    var seen = null;
+    its.forEach(function (it, i) {
+      if (it.facet && it.facet !== seen) { seen = it.facet; L.push('### ' + it.facet, ''); }
+      L.push((i + 1) + '. ' + (it.text || ''));
+      L.push('   _Scale:_ ' + scalePts(it.scale).join(' · '), '');
+    });
+    var flagged = its.map(function (it, i) { return reviewByKey(reviews, it.id, i); }).filter(Boolean);
+    if (flagged.length) {
+      L.push('## Wording review notes', '');
+      flagged.forEach(function (rv) {
+        var idx = its.map(function (x) { return x.id; }).indexOf(rv.id);
+        var it = idx >= 0 ? its[idx] : its[rv.id];
+        L.push('**Q' + ((idx >= 0 ? idx : rv.id) + 1) + '.** ' + (it ? it.text : ''));
+        (rv.issues || []).forEach(function (is) {
+          L.push('- _' + (is.type || 'issue') + '_ (' + (is.severity || 'med') + '): ' + (is.note || ''));
+          if (is.fix) L.push('  - Rewrite: ' + is.fix);
+        });
+        L.push('');
+      });
+    }
+    return L.join('\n');
+  }
+
+  function questionnaireCsv() {
+    var s = spec || {}, its = s.items || [], reviews = s.reviews || [];
+    var rows = [['q_no', 'id', 'facet', 'item_text', 'scale', 'scale_points', 'flags', 'suggested_rewrite']];
+    its.forEach(function (it, i) {
+      var rv = reviewByKey(reviews, it.id, i);
+      var flags = rv ? (rv.issues || []).map(function (x) { return x.type + ' (' + x.severity + ')'; }).join('; ') : '';
+      var fixes = rv ? (rv.issues || []).map(function (x) { return x.fix; }).filter(Boolean).join(' || ') : '';
+      rows.push([i + 1, it.id || '', it.facet || '', it.text || '', it.scale || 'agree5',
+        scalePts(it.scale).join('|'), flags, fixes]);
+    });
+    return toCSV(rows);
+  }
+
+  function resultsData() {
+    var its = spec && spec.items || [];
+    var item = its[runItem];
+    if (!item) return null;
+    var rc = results[keyOf(runItem)];
+    var pool = rc ? rc.answers : answers;
+    var points = scalePts(item.scale);
+    var vals = pool.filter(function (a) { return a && a.value; }).map(function (a) { return a.value; });
+    if (vals.length < 2) return null;
+    var counts = points.map(function (_, i) { return vals.filter(function (v) { return v === i + 1; }).length; });
+    var n = vals.length;
+    var mean = vals.reduce(function (a, v) { return a + v; }, 0) / n;
+    var sd = Math.sqrt(vals.reduce(function (a, v) { return a + (v - mean) * (v - mean); }, 0) / n);
+    var modal = Math.max.apply(null, counts) / n;
+    var failed = pool.filter(function (a) { return a && a.error; }).length;
+    return { item: item, points: points, counts: counts, n: n, mean: mean, sd: sd, modal: modal,
+             failed: failed, findings: diagnose(counts, points, pool, rc && rc.people) };
+  }
+
+  function resultsCsv(d) {
+    var rows = [['scale_point', 'label', 'count', 'percent']];
+    d.counts.forEach(function (c, i) { rows.push([i + 1, d.points[i], c, (c / d.n * 100).toFixed(1)]); });
+    return toCSV(rows);
+  }
+
+  function resultsMd(d) {
+    var s = spec || {}, L = [];
+    L.push('# Run results', '');
+    L.push('**Item:** ' + (d.item.text || ''));
+    L.push('**Scale:** ' + d.points.join(' · '));
+    L.push('**Respondents:** ' + d.n + ' answered' + (d.failed ? ' (' + d.failed + ' failed)' : ''));
+    if (s.population) L.push('**Population:** ' + s.population);
+    if (s.dimensions && s.dimensions.length) {
+      L.push('**Dimensions:** ' + s.dimensions.map(function (x) { return humanize(x.name); }).join(', '));
+    }
+    L.push('', '## Distribution', '', '| Response | Count | % |', '| --- | ---: | ---: |');
+    d.counts.forEach(function (c, i) {
+      L.push('| ' + d.points[i] + ' | ' + c + ' | ' + (c / d.n * 100).toFixed(1) + '% |');
+    });
+    L.push('', '## Statistics', '',
+      '- Mean: ' + d.mean.toFixed(2), '- Std dev: ' + d.sd.toFixed(2),
+      '- Modal share: ' + Math.round(d.modal * 100) + '%', '');
+    if (d.findings && d.findings.length) {
+      L.push('## Diagnostics', '');
+      d.findings.forEach(function (f) {
+        L.push('- **' + (f.type || 'finding') + '** (' + (f.sev || 'med') + '): ' + f.text);
+      });
+      L.push('');
+    }
+    L.push('---',
+      '_Synthetic-panel pretest — language models conditioned on demographic profiles, ' +
+      'not human respondents. Compare against the benchmark crosstab before trusting._');
+    return L.join('\n');
+  }
+
+  function initExports() {
+    var btns = document.querySelectorAll('.exportbar button[data-x]');
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].addEventListener('click', function () {
+        var kind = this.getAttribute('data-x');
+        var base = slug((spec && ((spec.construct || {}).name || spec.population)) || 'survey');
+        if (kind === 'q-md') return downloadText(base + '-questionnaire.md', questionnaireMd(), 'text/markdown');
+        if (kind === 'q-csv') return downloadText(base + '-questionnaire.csv', questionnaireCsv(), 'text/csv');
+        var d = resultsData();
+        if (!d) return;
+        if (kind === 'r-md') downloadText(base + '-results.md', resultsMd(d), 'text/markdown');
+        else if (kind === 'r-csv') downloadText(base + '-results.csv', resultsCsv(d), 'text/csv');
+      });
+    }
+  }
+  initExports();
 
   // Runs a set of items against a fresh panel. Each respondent answers the WHOLE
   // questionnaire in one request — the thing a real respondent does — instead of being
@@ -1182,7 +1573,7 @@ window.addEventListener('error', function (e) {
 
       // publish every cache entry up front so partial results survive a stop or a 429
       chosen.forEach(function (i) {
-        results[keyOf(i)] = { n: n, answers: [], text: items[i].text, done: false };
+        results[keyOf(i)] = { n: n, answers: [], text: items[i].text, done: false, people: people };
       });
       if (chosen.indexOf(runItem) < 0) runItem = chosen[0];
       answers = results[keyOf(runItem)].answers;
@@ -1193,7 +1584,10 @@ window.addEventListener('error', function (e) {
       function nextChunk() {
         if (stopping) { resolve({ stopped: true }); return; }
         if (at >= n) {
-          chosen.forEach(function (i) { results[keyOf(i)].done = true; });
+          chosen.forEach(function (i) {
+            var slot = results[keyOf(i)];
+            if (slot) slot.done = true;   // may have been pruned mid-run
+          });
           resolve({ ok: true });
           return;
         }
@@ -1211,8 +1605,13 @@ window.addEventListener('error', function (e) {
             var who = profileOf(people[a.id]);
             chosen.forEach(function (idx) {
               var key = keyOf(idx);
+              // The entry can be gone if the pool changed mid-run. Skip that item
+              // rather than throwing, which would abort the whole sweep and lose
+              // the respondents already collected.
+              var slot = results[key];
+              if (!slot) return;
               var v = a.values ? a.values[key] : null;
-              results[key].answers[a.id] = {
+              slot.answers[a.id] = {
                 value: v || null,
                 error: v ? null : (a.error || 'no answer for this item'),
                 profile: who
@@ -1295,6 +1694,13 @@ window.addEventListener('error', function (e) {
     return out;
   }
 
+  // Lowest "qN" not already used in the pool.
+  function freeId(taken) {
+    var n = 1;
+    while (taken['q' + n]) n++;
+    return 'q' + n;
+  }
+
   // Items merge by id so the model never retransmits wording it is not changing.
   // Re-emitting the whole list would let it quietly reword an approved question.
   var unmatchedRemoves = [];
@@ -1327,8 +1733,14 @@ window.addEventListener('error', function (e) {
       // Unknown id, or none at all: append. Preferring append over replace means a
       // forgotten id surfaces as a visible duplicate instead of silent data loss.
       if (!it.text) return;
+      // The generated id must not collide with one already in the pool. "q" +
+      // (length + 1) does collide as soon as anything has been removed — pool
+      // [q1,q3] would mint another q3 — and two items sharing an id share one
+      // result-cache slot, which makes a sweep drop items and then abort.
+      var taken = {};
+      out.forEach(function (x) { taken[x.id] = 1; });
       out.push({
-        id: it.id || 'q' + (out.length + 1),
+        id: it.id || freeId(taken),
         text: it.text,
         scale: it.scale || 'agree5',
         facet: it.facet || ''
@@ -1411,10 +1823,12 @@ window.addEventListener('error', function (e) {
     viewStage = null;
     renderPanel();
     renderOptions(next.options);
+    requestReview();
     return true;
   }
 
   /* ---------------- hero ---------------- */
+  var CHIPS = pickChips();
   var chipSizes = sizeClasses(CHIPS.length);
   CHIPS.forEach(function (text, i) {
     var b = document.createElement('button');
@@ -1439,7 +1853,7 @@ window.addEventListener('error', function (e) {
   }
   function reveal() {
     caret.classList.add('done'); field.classList.add('ready');
-    sugg.classList.add('ready'); rotate();
+    sugg.classList.add('ready'); $('import').classList.add('ready'); rotate();
     setTimeout(function () { entry.focus(); }, 220);
   }
   if (reduced) { typed.textContent = HEADLINE; reveal(); }
@@ -1482,14 +1896,37 @@ window.addEventListener('error', function (e) {
     for (var i = 0; i < old.length; i++) old[i].remove();
   }
 
+  // Fisher-Yates on a copy — leaves the input array untouched.
+  function shuffled(arr) {
+    var a = arr.slice();
+    for (var i = a.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var t = a[i]; a[i] = a[j]; a[j] = t;
+    }
+    return a;
+  }
+
+  // Pick SHOWN topics at random, preferring ones not shown on the last visit so a
+  // reload turns them over. localStorage may be unavailable (private windows) —
+  // fall back to a plain random draw.
+  function pickChips() {
+    var prev = [];
+    try { prev = JSON.parse(localStorage.getItem(LAST_KEY)) || []; } catch (e) { prev = []; }
+    var prevSet = {};
+    prev.forEach(function (t) { prevSet[t] = 1; });
+    var fresh = CHIP_POOL.filter(function (t) { return !prevSet[t]; });
+    var picked = shuffled(fresh).slice(0, SHOWN);
+    if (picked.length < SHOWN) {
+      picked = picked.concat(shuffled(prev).slice(0, SHOWN - picked.length));
+    }
+    try { localStorage.setItem(LAST_KEY, JSON.stringify(picked)); } catch (e) {}
+    return picked;
+  }
+
   // shuffle a middle-biased bag of size classes, one per item — used by the
   // hero's floating topic words
   function sizeClasses(n) {
-    var pool = ['s1','s1','s2','s2','s2','s3','s3','s3','s4','s4','s5'];
-    for (var i = pool.length - 1; i > 0; i--) {
-      var j = Math.floor(Math.random() * (i + 1));
-      var t = pool[i]; pool[i] = pool[j]; pool[j] = t;
-    }
+    var pool = shuffled(['s1','s1','s2','s2','s2','s3','s3','s3','s4','s4','s5']);
     var out = [];
     for (var k = 0; k < n; k++) out.push(pool[k % pool.length]);
     return out;
@@ -1556,6 +1993,76 @@ window.addEventListener('error', function (e) {
     document.body.classList.add('talking');
     ghosts(60);
     var line = 'I want to build a survey for ' + topic;
+    history.push({ role: 'user', text: line });
+    addUser(line);
+    ask();
+  }
+
+  /* ---------------- import an existing survey ---------------- */
+  var importToggle = $('importToggle'), importPanel = $('importPanel'),
+      importText = $('importText'), importFile = $('importFile'),
+      importFileName = $('importFileName'), importGo = $('importGo'), importMsg = $('importMsg');
+
+  importToggle.addEventListener('click', function () {
+    var open = importPanel.hidden;
+    importPanel.hidden = !open;
+    importToggle.setAttribute('aria-expanded', String(open));
+    if (open) importText.focus();
+  });
+  importFile.addEventListener('change', function () {
+    var f = importFile.files && importFile.files[0];
+    importFileName.textContent = f ? f.name : 'Choose a file — .docx, .pdf, .csv, .txt';
+  });
+  function importMessage(text, working) {
+    importMsg.hidden = !text;
+    importMsg.textContent = text || '';
+    importMsg.classList.toggle('work', !!working);
+  }
+  importGo.addEventListener('click', function () {
+    var f = importFile.files && importFile.files[0];
+    var pasted = importText.value.trim();
+    if (!f && pasted.length < 15) {
+      importMessage('Paste at least a couple of questions, or pick a file.');
+      return;
+    }
+    var body = new FormData();
+    if (f) body.append('file', f);
+    if (pasted) body.append('raw', pasted);
+
+    importGo.disabled = true;
+    importMessage('Reading and reviewing…', true);
+    fetch('/api/import', { method: 'POST', body: body })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d || !d.items || !d.items.length) {
+          importMessage((d && d.error) || 'No survey questions found in that input.');
+          importGo.disabled = false;
+          return;
+        }
+        startFromImport(d);
+      })
+      .catch(function (err) {
+        importMessage('Import failed: ' + err.message);
+        importGo.disabled = false;
+      });
+  });
+
+  function startFromImport(d) {
+    spec = { stage: 1, items: d.items, ready: 20 };
+    if (d.population) spec.population = d.population;
+    if (d.construct) spec.construct = d.construct;
+    spec.reviews = d.reviews || [];
+    // these items are already reviewed — don't let the first chat turn re-run it
+    lastReviewedSig = JSON.stringify(d.items.map(function (it) { return [it.id, it.text]; }));
+
+    document.body.classList.add('talking');
+    ghosts(60);
+    renderPanel();
+
+    var name = (d.construct && d.construct.name) ? ' on ' + d.construct.name : '';
+    var line = 'I’ve imported a survey — ' + d.items.length +
+      (d.items.length === 1 ? ' question' : ' questions') + name +
+      '. Help me set up the panel and benchmark around it.';
     history.push({ role: 'user', text: line });
     addUser(line);
     ask();
