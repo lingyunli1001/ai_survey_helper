@@ -33,9 +33,28 @@ THINKING_BUDGET = int(os.environ.get("GEMINI_THINKING_BUDGET", "-1"))
 # The free tier allows 15 generate_content requests per minute per model, and every
 # synthetic respondent is one request. Without pacing, a panel run burns the minute's
 # quota in about two seconds and the rest of the run comes back as errors.
+# Only the panel waits. Nobody answers 15 questions a minute by hand, but a turn that
+# needs its patch recovered costs two requests, and that was enough to trip the limiter
+# and stall the next turn for the rest of the window with nothing on screen to say why.
 RPM = int(os.environ.get("GEMINI_RPM", "15"))
 _recent: deque = deque()
 _rate_lock = asyncio.Lock()
+
+
+def _prune(now: float):
+    while _recent and now - _recent[0] >= 60.0:
+        _recent.popleft()
+
+
+def _note_request():
+    """Record an interactive request against the window without ever waiting on it.
+
+    Deliberately lock-free: taking _rate_lock here would block behind a panel run,
+    which holds it across its sleep. Appends stay ordered because now is monotonic.
+    """
+    now = time.monotonic()
+    _prune(now)
+    _recent.append(now)
 
 
 async def _throttle():
@@ -43,8 +62,7 @@ async def _throttle():
     async with _rate_lock:
         while True:
             now = time.monotonic()
-            while _recent and now - _recent[0] >= 60.0:
-                _recent.popleft()
+            _prune(now)
             if len(_recent) < RPM:
                 _recent.append(now)
                 return
@@ -618,8 +636,8 @@ async def _ask_one(client, gate, person, items: list[Item]):
 async def _one_shot_json(prompt: str, max_tokens: int = 1600) -> tuple[dict | None, str]:
     """One non-streaming generateContent call that must return a JSON object.
 
-    Returns (parsed_dict_or_None, error_message). Routes through the shared pacer
-    so it counts against the same per-minute budget as everything else.
+    Returns (parsed_dict_or_None, error_message). Counted against the per-minute
+    budget but never held back: one user action, one request.
     """
     payload = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
@@ -629,7 +647,7 @@ async def _one_shot_json(prompt: str, max_tokens: int = 1600) -> tuple[dict | No
             "responseMimeType": "application/json",
         },
     }
-    await _throttle()
+    _note_request()
     try:
         async with httpx.AsyncClient(timeout=40.0) as client:
             r = await client.post(
@@ -911,7 +929,7 @@ async def _recover_patch(payload: dict, reply: str) -> str:
         # low temperature: this is a formatting repair, not a fresh answer
         "generationConfig": {"temperature": 0.2, "maxOutputTokens": MAX_OUTPUT_TOKENS},
     }
-    await _throttle()
+    _note_request()
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             r = await client.post(
@@ -936,7 +954,7 @@ async def _gemini_stream(payload: dict):
     url = ENDPOINT.format(model=MODEL)
     finish = ""
     seen = ""
-    await _throttle()
+    _note_request()
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             async with client.stream(
@@ -972,6 +990,9 @@ async def _gemini_stream(payload: dict):
     recovered = ""
     if seen.strip() and API_KEY and finish != "MAX_TOKENS" and _patch_json(seen) is None:
         recovered = "missing" if SENTINEL not in seen else "malformed"
+        # the prose is already on screen by now, so without this the reader watches
+        # bare dots for the whole second round trip with no idea anything is happening
+        yield _sse({"status": "updating the panel"})
         patch = await _recover_patch(payload, seen)
         if patch:
             seen += patch

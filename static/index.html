@@ -185,7 +185,7 @@
                   margin-left:2px; transform:translateY(.08em); animation:blink 1.15s step-end infinite; }
   .thinking { display:flex; gap:5px; align-items:center; margin:20px 0 26px; height:20px; }
   .thinking.under { margin:-14px 0 26px; }
-  .thinking.under .note { margin-left:6px; font-size:11.5px; color:var(--faint); letter-spacing:.02em; }
+  .thinking .note { margin-left:6px; font-size:11.5px; color:var(--faint); letter-spacing:.02em; }
   .retry { margin:-10px 0 26px; font-size:12.5px; color:var(--muted); }
 
   .options { margin:-8px 0 30px; display:flex; flex-direction:column;
@@ -2247,11 +2247,14 @@ window.addEventListener('error', function (e) {
   function addThinking(note) {
     var el = document.createElement('div'); el.className = 'thinking';
     el.innerHTML = '<i></i><i></i><i></i>';
-    if (note) {
-      var n = document.createElement('span'); n.className = 'note'; n.textContent = note;
-      el.appendChild(n);
-    }
+    if (note) setNote(el, note);
     thread.appendChild(el); return el;
+  }
+  function setNote(el, text) {
+    if (!el) return;
+    var n = el.querySelector('.note');
+    if (!n) { n = document.createElement('span'); n.className = 'note'; el.appendChild(n); }
+    n.textContent = text;
   }
   function addModel() {
     var el = document.createElement('div'); el.className = 'turn model';
@@ -2535,7 +2538,7 @@ window.addEventListener('error', function (e) {
   function ask(attempt) {
     attempt = attempt || 0;
     busy = true; syncSend(); clearOptions();
-    var dots = addThinking(); toBottom();
+    var dots = addThinking('thinking'); toBottom();
 
     fetch('/api/chat', {
       method: 'POST',
@@ -2627,6 +2630,7 @@ window.addEventListener('error', function (e) {
               return;
             }
             if (payload.truncated) { truncated = true; return; }
+            if (payload.status) { setNote(dots, payload.status); return; }
             if (payload.text) {
               full += payload.text;
               emit(false);
