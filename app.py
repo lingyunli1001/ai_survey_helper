@@ -71,11 +71,20 @@ import in one clause, then start at STAGE 1. Your job is the respondent, the
 construct, and the benchmark around the items they gave you; you may still suggest
 wording fixes when asked.
 
-STAGE 1 — RESPONDENT. Who takes this survey?
+STAGE 1 — RESPONDENT AND DESIGN. Who takes this, and what is compared with what?
   Every synthetic respondent gets conditioned on the profile defined here.
   Get the population, then the demographic dimensions that plausibly MOVE the answer.
   Say in a few words why each dimension would matter. Skip boilerplate demographics
   that would not moderate this particular outcome.
+  Then settle the DESIGN, because it decides how big the sample has to be:
+    - is this descriptive (one group, just describing it), a comparison between
+      groups that already exist (commuters vs residents), or an experiment where
+      you assign people to conditions?
+    - if groups or conditions are being compared, name them — those are the "arms"
+    - what is the one outcome the comparison is about (the dependent variable)?
+    - anything that has to be held constant or measured as a control?
+  The interface shows the person what their sample size can and cannot detect as
+  soon as this is set, so get the arms named even if roughly.
 
 STAGE 2 — CONSTRUCT. What is actually being measured?
   Push past the topic to the specific latent thing, and to the decision it informs.
@@ -93,6 +102,11 @@ STAGE 3 — ITEMS. Draft the whole pool at once, then refine it.
   Twenty rephrasings of one question is a failure. Split the construct into 4-5 named
   facets and write 4-5 items per facet, so the pool spans the construct instead of
   circling one corner of it. Group the items facet by facet and tag each with its facet.
+  MIX THE ANSWER FORMATS. A pool where every item is a 5-point agreement scale is a
+  weak instrument: it measures acquiescence as much as the construct. Pick the format
+  that actually fits each question — agreement for attitude intensity, frequency for
+  behaviour, multiple choice for picking among alternatives, ordered bands for amounts.
+  A good twenty-item pool usually carries several "choice" items.
   Your prose names the facets and what you deliberately left out. Never list the items
   themselves — the panel already shows them.
   Every turn after that REFINES the pool, and your options are revision moves: more
@@ -182,14 +196,52 @@ Field reference — no markdown fences, nothing after the JSON:
               gender:[{"label":"Female","pct":100}] and age:[{"label":"20-29","pct":100}].
               Never drop a dimension because it stopped varying, and never leave a
               broad distribution in place after the person has narrowed it.
+  design      null until you know it, then
+              {"type": "descriptive"|"between-groups"|"experiment"|"correlational",
+               "arms": [{"name": short label, "description": one clause}],
+               "dv": the one outcome the comparison is about,
+               "controls": [things held constant or measured as controls]}
+              "arms" is the groups or conditions being compared — ["Commuters",
+              "On-campus residents"], or ["Control", "Reminder email"]. Leave it
+              empty for a purely descriptive survey. The interface computes the
+              sample size the design needs from the number of arms, so emit them as
+              soon as they are named, even roughly.
+              NEVER also emit the arms as a demographic dimension. "Commuters vs
+              residents" is either arms or a dimension, not both — listing it twice
+              double-counts the cells and overstates the sample size needed. Arms are
+              what the study compares; dimensions are what the panel varies within
+              each arm.
   construct   null until stage 2, then
               {"name": short label, "definition": one sentence, "decision": what the
               result decides, "excludes": [2-4 adjacent things this will NOT measure]}
               Fill it in progressively — emit partial fields as you learn them.
   items       array of {"id": string, "text": string, "facet": string,
-              "scale": "agree5"|"freq5"|"binary"} — empty until stage 3.
+              "scale": string, "options": [string]} — empty until stage 3.
               "facet" is the short label of the sub-area the item covers; items sharing
               a facet are shown grouped under it.
+              "scale" picks the ANSWER FORMAT. Choose per item — a pool that is all
+              agree5 is a weak questionnaire:
+                agree5   5-point Strongly disagree..Strongly agree. For attitude and
+                         opinion intensity.
+                freq5    5-point Never..Always. For how often a behaviour happens.
+                binary   Yes / No. For a clean factual split.
+                         These three carry default labels, so "options" is normally
+                         omitted. Supply your own ordered labels only when the
+                         defaults genuinely do not fit — "Never / Monthly / Weekly /
+                         Daily" for a frequency item, say. They stay ordered either way.
+                choice   MULTIPLE CHOICE with your own unordered options. For picking
+                         among alternatives — which channel, which reason, which brand,
+                         what they would do. REQUIRES "options": 3-6 short, mutually
+                         exclusive, collectively near-exhaustive strings.
+                ordinal  Your own ORDERED options — income bands, tenure bands, a
+                         7-point custom scale. REQUIRES "options" in order, low to high.
+              Use "choice" when the answer is a category, not a degree. Reach for it
+              whenever "how strongly do you agree" would be a clumsy way to ask.
+              choice vs ordinal is decided by ONE test: could the options be sorted
+              low to high? "Very likely / Somewhat likely / Not very likely / Not at
+              all likely" is a degree, so it is ordinal (written low to high), never
+              choice. "Phone / Email / Live chat" has no order, so it is choice.
+              Getting this wrong costs the run its spread diagnostics.
               CRITICAL — items are merged BY ID, never replaced as a list. Send only the
               items you are adding or changing this turn.
               Give every item a short stable id: q1, q2, q3 and so on.
@@ -233,6 +285,8 @@ class Item(BaseModel):
     id: str
     text: str
     scale: str = "agree5"
+    # present for "choice" and "ordinal": the item writes its own answer options
+    options: list[str] | None = None
 
 
 class RespondRequest(BaseModel):
@@ -244,6 +298,7 @@ class ReviewItem(BaseModel):
     id: str = ""
     text: str
     scale: str = "agree5"
+    options: list[str] | None = None
 
 
 class ReviewRequest(BaseModel):
@@ -258,6 +313,54 @@ SCALE_POINTS = {
     "freq5": ["Never", "Rarely", "Sometimes", "Often", "Always"],
     "binary": ["Yes", "No"],
 }
+
+# "choice" is nominal — its options have no order, so a mean over them is
+# meaningless and the run view reports concentration instead. "ordinal" is a
+# custom ORDERED scale (income bands, a 7-point agreement scale) and is treated
+# like the named scales. Both carry their own labels on the item.
+CUSTOM_SCALES = ("choice", "ordinal")
+NOMINAL_SCALES = ("choice",)
+
+
+def _setting_standard(setting: str) -> str:
+    """How hard to push, given what the survey is for.
+
+    A course assignment and a dissertation want very different things from the
+    same five stages, and treating them alike is either pedantic or negligent.
+    """
+    s = setting.lower()
+    if "thesis" in s or "dissertation" in s:
+        return (
+            "\nThis is thesis work, so hold it to a defensible standard. The construct "
+            "needs a definition someone could argue with, the benchmark needs a named "
+            "source and year, and the sample has to support the comparisons they say "
+            "they want to make. Say so plainly when it does not.\n"
+        )
+    if "course" in s or "assignment" in s or "class" in s:
+        return (
+            "\nThis is coursework. Keep it moving: a workable construct beats a perfect "
+            "one, a benchmark is welcome but optional, and a small sample is fine. Spend "
+            "the effort on the items themselves — that is what gets marked.\n"
+        )
+    if "internship" in s or "work" in s:
+        return (
+            "\nThis is applied work, so keep it practical. Tie the construct to the "
+            "decision someone will make with the result, and prefer items that produce "
+            "a number a stakeholder can act on.\n"
+        )
+    return (
+        "\nSetting is unusual or self-described — read it literally and match its "
+        "level of rigour rather than assuming coursework.\n"
+    )
+
+
+def points_for(item) -> list[str]:
+    """The answer labels for an item: its own options when it has them, else the
+    named scale it selected."""
+    opts = getattr(item, "options", None)
+    if opts:
+        return [str(o) for o in opts]
+    return SCALE_POINTS.get(getattr(item, "scale", "agree5"), SCALE_POINTS["agree5"])
 
 # One request per RESPONDENT, who answers the whole questionnaire in it — the same
 # thing a real respondent does. Personas are never batched together: that would let
@@ -286,7 +389,7 @@ not invent problems.
 
 Population: {population}
 
-Items, each shown as  id | scale | text :
+Items, each shown as  id | scale | text  [options: the answer choices] :
 {items}
 
 For each item that has a real problem, report it. Check for:
@@ -309,7 +412,8 @@ fine. If none have problems, return exactly {{"reviews":[]}}."""
 # and run the wording review in the same call to save a round-trip.
 IMPORT_PROMPT = """Below is the raw text of a survey someone already wrote. Pull the \
 actual questionnaire items out of it — ignore the title, instructions, consent \
-blocks, section headers, and page numbers.
+blocks, section headers, and page numbers. Keep each question's OWN answer options \
+where the text gives them.
 
 RAW TEXT
 {raw}
@@ -318,14 +422,26 @@ Return ONLY JSON, no code fences, nothing around it:
 {{"population": "one short phrase for who this survey seems aimed at, or null",
   "construct": {{"name": "short label for what it measures", "definition": "one sentence"}},
   "items": [{{"id": "q1", "text": "the question, verbatim where possible",
-    "facet": "short label for the sub-area it covers", "scale": "agree5|freq5|binary"}}],
+    "facet": "short label for the sub-area it covers",
+    "scale": "agree5|freq5|binary|choice|ordinal", "options": ["only for choice/ordinal"]}}],
   "reviews": [{{"id": "q1", "issues": [{{"type": "double-barreled", "severity": "high",
     "note": "one plain-language sentence", "fix": "a concrete rewrite"}}]}}]}}
 
 Rules:
 - id: q1, q2, q3 … in the order the items appear.
-- scale: "agree5" for agreement/attitude items, "freq5" for how-often items,
-  "binary" for yes/no. When unsure, "agree5".
+- scale: match what the source actually asks for.
+    agree5   a 5-point agreement scale — omit "options"
+    freq5    a 5-point Never..Always frequency scale — omit "options"
+    binary   yes / no — omit "options"
+    choice   the question lists its own unordered answer choices — copy them
+             verbatim into "options"
+    ordinal  the question lists its own ORDERED choices (amounts, bands, a custom
+             n-point scale) — copy them into "options", low to high
+  When the source spells out answer options, use "choice" or "ordinal" and keep them;
+  do not flatten a real multiple-choice question into an agreement scale. When the
+  source gives no options at all, infer agree5 / freq5 / binary from the wording.
+- options: strip the enumeration the source used. "(a) Phone" becomes "Phone",
+  "1. Billing" becomes "Billing". Keep the wording, drop the letter or number.
 - facet: group the items into 3-6 named sub-areas; best-effort from the wording.
 - population and construct are best-effort guesses; use null / short values, do
   not invent detail.
@@ -357,7 +473,20 @@ async def chat(req: ChatRequest):
         )
 
     state = json.dumps(req.spec, separators=(",", ":")) if req.spec else "{}"
-    instruction = SYSTEM_PROMPT + (
+    brief = (req.spec or {}).get("brief") or {}
+    instruction = SYSTEM_PROMPT
+    if brief.get("question"):
+        # the brief is the ground everything else is judged against, so it goes in
+        # ahead of the spec rather than buried inside it
+        instruction += (
+            "\n\nTHE BRIEF — the person gave you this before the interview started. "
+            "Every stage serves it.\n"
+            f"  Research question: {brief.get('question')}\n"
+            f"  Setting: {brief.get('setting') or 'not stated'}\n"
+            f"  Who they want to ask: {brief.get('population') or 'not yet decided'}\n"
+            + _setting_standard(brief.get("setting") or "")
+        )
+    instruction += (
         "\n\nCURRENT SPEC (the interface already holds this; do not repeat it back):\n"
         + state
     )
@@ -408,7 +537,7 @@ def _render_questions(items: list[Item], order: list[int]) -> str:
     blocks = []
     for shown, idx in enumerate(order, start=1):
         item = items[idx]
-        points = SCALE_POINTS.get(item.scale, SCALE_POINTS["agree5"])
+        points = points_for(item)
         choices = "   ".join(f"{i + 1} {p}" for i, p in enumerate(points))
         blocks.append(f"{shown}. {item.text}\n   {choices}")
     return "\n\n".join(blocks)
@@ -425,8 +554,7 @@ def _parse_answers(raw: str, items: list[Item], order: list[int]) -> dict:
         if not 1 <= shown <= len(order):
             continue
         item = items[order[shown - 1]]
-        points = SCALE_POINTS.get(item.scale, SCALE_POINTS["agree5"])
-        if 1 <= value <= len(points):
+        if 1 <= value <= len(points_for(item)):
             out[item.id] = value
     return out
 
@@ -566,7 +694,9 @@ async def review(req: ReviewRequest):
         return {"reviews": []}
 
     listing = "\n".join(
-        f"{it.id or i} | {it.scale} | {it.text}" for i, it in enumerate(req.items)
+        f"{it.id or i} | {it.scale} | {it.text}"
+        f"  [options: {' / '.join(points_for(it))}]"
+        for i, it in enumerate(req.items)
     )
     data, err = await _one_shot_json(
         REVIEW_PROMPT.format(population=req.population or "not specified", items=listing)
@@ -653,7 +783,7 @@ def _extract_file_text(name: str, blob: bytes) -> str:
 
 def _clean_import(data: dict) -> dict:
     """Coerce the model's parse into the shape the client merges into `spec`."""
-    scales = {"agree5", "freq5", "binary"}
+    scales = set(SCALE_POINTS) | set(CUSTOM_SCALES)
     items = []
     for i, it in enumerate(data.get("items", []) or [], start=1):
         if not isinstance(it, dict):
@@ -662,14 +792,30 @@ def _clean_import(data: dict) -> dict:
         if not txt:
             continue
         scale = it.get("scale", "agree5")
-        items.append(
-            {
-                "id": str(it.get("id") or f"q{i}")[:12],
-                "text": txt[:400],
-                "facet": str(it.get("facet", "")).strip()[:60],
-                "scale": scale if scale in scales else "agree5",
-            }
-        )
+        if scale not in scales:
+            scale = "agree5"
+        # belt-and-braces on the prompt rule: drop a leading "(a)" / "1." / "b)"
+        opts = [
+            re.sub(r"^\s*[\(\[]?[a-zA-Z0-9][\)\].:]\s+", "", str(o)).strip()[:120]
+            for o in (it.get("options") or [])
+            if str(o).strip()
+        ]
+        opts = [o for o in opts if o][:10]
+        # a custom scale is only custom if it actually carries labels; without
+        # them it would render with no answers at all
+        if scale in CUSTOM_SCALES and len(opts) < 2:
+            scale, opts = "agree5", []
+        if scale not in CUSTOM_SCALES:
+            opts = []
+        entry = {
+            "id": str(it.get("id") or f"q{i}")[:12],
+            "text": txt[:400],
+            "facet": str(it.get("facet", "")).strip()[:60],
+            "scale": scale,
+        }
+        if opts:
+            entry["options"] = opts
+        items.append(entry)
 
     out: dict = {"items": items}
     if not items:

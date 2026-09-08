@@ -15,14 +15,22 @@ Two ways in:
 
 Either way you get:
 
+- **A format per question, not one scale for everything.** The model picks
+  between 5-point agreement, 5-point frequency, yes/no, **multiple choice** with
+  its own options, and **ordered custom options** (income bands, a bespoke
+  scale) — whichever actually fits the question. An imported survey keeps the
+  answer options it already had.
 - **Wording review** on every item — double-barrels, leading phrasing,
   unbalanced options, vague terms, presupposition — each with a concrete
   rewrite, shown under the question.
 - **A synthetic run.** Each respondent answers the whole questionnaire in one
   API call, in a shuffled order, the way a real respondent would — personas are
   never batched together. The result view shows the distribution plus
-  per-question diagnostics: ceiling and floor effects, midpoint pile-up,
-  near-zero variance (the homogeneity artefact), and splits by subgroup.
+  per-question diagnostics. Ordered items get ceiling and floor effects,
+  midpoint pile-up, near-zero variance (the homogeneity artefact) and subgroup
+  splits by mean; multiple-choice items get concentration, unused options, and
+  subgroup splits by top choice — mean and standard deviation are omitted there,
+  since averaging unordered options means nothing.
 - **Export.** The questionnaire (Markdown or CSV, with the review notes) and the
   run results (a Markdown report or CSV).
 
